@@ -29,6 +29,16 @@ CRAGS = [
     {"name": "Vantage – Frenchman Coulee", "style": "sport", "lat": 46.9490, "lon": -119.9875},
 ]
 
+# fallback values used if live weather API is rate-limited
+FALLBACK_WEATHER = {
+    "Index – River Boulders": {"temperature_2m": 3.0, "wind_speed_10m": 2.0, "precipitation": 0.2, "rain_last_24h": 1.0},
+    "Index – Overhung / Hagakure-ish": {"temperature_2m": 3.0, "wind_speed_10m": 2.0, "precipitation": 0.2, "rain_last_24h": 1.0},
+    "Tieton – The Bend": {"temperature_2m": 8.0, "wind_speed_10m": 10.0, "precipitation": 0.0, "rain_last_24h": 0.0},
+    "Leavenworth – Icicle Canyon": {"temperature_2m": 6.0, "wind_speed_10m": 6.0, "precipitation": 0.0, "rain_last_24h": 0.0},
+    "Exit 38 – North Bend": {"temperature_2m": 2.0, "wind_speed_10m": 3.0, "precipitation": 0.3, "rain_last_24h": 1.5},
+    "Vantage – Frenchman Coulee": {"temperature_2m": 11.0, "wind_speed_10m": 12.0, "precipitation": 0.0, "rain_last_24h": 0.0},
+}
+
 
 def c_to_f(c):
     return round((c * 9 / 5) + 32, 1)
@@ -87,23 +97,36 @@ def get_weather_batch(crags):
         "&past_days=1"
     )
 
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        data = r.json()
 
-    data = r.json()
+        results = []
+        for i in range(len(crags)):
+            current = data["current"][i]
+            rain_last_24h = sum(data["hourly"]["precipitation"][i][-24:])
+            results.append((current, rain_last_24h, "live"))
 
-    results = []
+        return results
 
-    for i in range(len(crags)):
-        current = data["current"][i]
-        rain_last_24h = sum(data["hourly"]["precipitation"][i][-24:])
-        results.append((current, rain_last_24h))
+    except Exception:
+        results = []
+        for crag in crags:
+            fallback = FALLBACK_WEATHER[crag["name"]]
+            current = {
+                "temperature_2m": fallback["temperature_2m"],
+                "wind_speed_10m": fallback["wind_speed_10m"],
+                "precipitation": fallback["precipitation"],
+            }
+            rain_last_24h = fallback["rain_last_24h"]
+            results.append((current, rain_last_24h, "fallback"))
 
-    return results
+        return results
 
 
 def score_crag(crag, weather_tuple):
-    weather, rain_24h = weather_tuple
+    weather, rain_24h, source = weather_tuple
 
     temp_f = c_to_f(weather["temperature_2m"])
     wind_mph = kmh_to_mph(weather["wind_speed_10m"])
@@ -129,8 +152,11 @@ def score_crag(crag, weather_tuple):
     score = max(0, min(100, round(score)))
 
     delay_hours = rain_24h * 0.3 + rain_now * 2
-
     best_window = next_daylight_window(delay_hours)
+
+    reason = "Weather and drying conditions evaluated"
+    if source == "fallback":
+        reason += " (using fallback weather due to API rate limit)"
 
     return {
         "area": crag["name"],
@@ -141,7 +167,7 @@ def score_crag(crag, weather_tuple):
         "temperature": temp_f,
         "wind": wind_mph,
         "rain": rain_now,
-        "reason": "Weather and drying conditions evaluated",
+        "reason": reason,
     }
 
 
@@ -150,9 +176,7 @@ def recommendations(
     max_hours: float = Query(default=3),
     style: str = Query(default="all")
 ):
-
     weather_data = get_weather_batch(CRAGS)
-
     results = [score_crag(c, weather_data[i]) for i, c in enumerate(CRAGS)]
 
     if style != "all":
