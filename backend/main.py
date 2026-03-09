@@ -8,14 +8,19 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174"],
+    allow_origins=[
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "https://rockradar.vercel.app",
+        "https://rockradar-git-main-riegelmail.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 HOME = {
-    "name": "Miramont",
+    "name": "Mirrormont",
     "lat": 47.484,
     "lon": -121.999,
 }
@@ -89,11 +94,17 @@ CRAGS = [
     }
 ]
 
+WEATHER_CACHE = {}
+CACHE_MINUTES = 10
+
+
 def c_to_f(c):
     return round((c * 9 / 5) + 32, 1)
 
+
 def kmh_to_mph(kmh):
     return round(kmh * 0.621371, 1)
+
 
 def miles_between(lat1, lon1, lat2, lon2):
     r = 3958.8
@@ -103,26 +114,10 @@ def miles_between(lat1, lon1, lat2, lon2):
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return r * c
 
+
 def drive_time_hours(miles):
     return round(miles / 55, 2)
 
-def get_weather(lat, lon):
-    url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,wind_speed_10m,precipitation"
-        f"&hourly=precipitation"
-        f"&past_days=1"
-    )
-
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
-    data = r.json()
-
-    current = data["current"]
-    rain_last_24h = sum(data["hourly"]["precipitation"][-24:])
-
-    return current, rain_last_24h
 
 def next_daylight_window(delay_hours):
     now = datetime.now()
@@ -145,6 +140,47 @@ def next_daylight_window(delay_hours):
         end = end.replace(hour=sunset_hour, minute=0, second=0, microsecond=0)
 
     return f"{start.strftime('%-I %p')} – {end.strftime('%-I %p')}"
+
+
+def get_weather(lat, lon):
+    cache_key = f"{lat},{lon}"
+    now = datetime.utcnow()
+
+    if cache_key in WEATHER_CACHE:
+        cached = WEATHER_CACHE[cache_key]
+        if now - cached["timestamp"] < timedelta(minutes=CACHE_MINUTES):
+            return cached["current"], cached["rain_last_24h"]
+
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&current=temperature_2m,wind_speed_10m,precipitation"
+        f"&hourly=precipitation"
+        f"&past_days=1"
+    )
+
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+
+        current = data["current"]
+        rain_last_24h = sum(data["hourly"]["precipitation"][-24:])
+
+        WEATHER_CACHE[cache_key] = {
+            "timestamp": now,
+            "current": current,
+            "rain_last_24h": rain_last_24h,
+        }
+
+        return current, rain_last_24h
+
+    except Exception:
+        if cache_key in WEATHER_CACHE:
+            cached = WEATHER_CACHE[cache_key]
+            return cached["current"], cached["rain_last_24h"]
+        raise
+
 
 def score_crag(crag):
     weather, rain_24h = get_weather(crag["lat"], crag["lon"])
@@ -200,51 +236,69 @@ def score_crag(crag):
         "temperature": temp_f,
         "wind": wind_mph,
         "rain": rain_now,
-        "reason": crag["reason"]
+        "reason": crag["reason"],
     }
+
 
 @app.get("/api/recommendations")
 def recommendations(
     max_hours: float = Query(default=3),
     style: str = Query(default="all")
 ):
-    results = [score_crag(c) for c in CRAGS]
+    try:
+        results = [score_crag(c) for c in CRAGS]
 
-    if style != "all":
-        results = [r for r in results if r["style"] == style]
+        if style != "all":
+            results = [r for r in results if r["style"] == style]
 
-    filtered = [r for r in results if r["drive_time"] <= max_hours]
+        filtered = [r for r in results if r["drive_time"] <= max_hours]
 
-    if not filtered:
+        if not filtered:
+            return {
+                "home": HOME["name"],
+                "max_hours": max_hours,
+                "style": style,
+                "best_area": "No crags in range",
+                "drive_time": 0,
+                "best_window": "",
+                "dry_score": 0,
+                "temperature": 0,
+                "rain": 0,
+                "wind": 0,
+                "reason": "Try increasing max drive time or changing style.",
+                "alternates": []
+            }
+
+        filtered.sort(key=lambda x: x["dry_score"], reverse=True)
+        best = filtered[0]
+
         return {
             "home": HOME["name"],
             "max_hours": max_hours,
             "style": style,
-            "best_area": "No crags in range",
+            "best_area": best["area"],
+            "drive_time": best["drive_time"],
+            "best_window": best["best_window"],
+            "dry_score": best["dry_score"],
+            "temperature": best["temperature"],
+            "rain": best["rain"],
+            "wind": best["wind"],
+            "reason": best["reason"],
+            "alternates": filtered[1:]
+        }
+
+    except Exception as e:
+        return {
+            "home": HOME["name"],
+            "max_hours": max_hours,
+            "style": style,
+            "best_area": "Weather temporarily unavailable",
             "drive_time": 0,
             "best_window": "",
             "dry_score": 0,
             "temperature": 0,
             "rain": 0,
             "wind": 0,
-            "reason": "Try increasing max drive time or changing style.",
+            "reason": f"Backend error: {str(e)}",
             "alternates": []
         }
-
-    filtered.sort(key=lambda x: x["dry_score"], reverse=True)
-    best = filtered[0]
-
-    return {
-        "home": HOME["name"],
-        "max_hours": max_hours,
-        "style": style,
-        "best_area": best["area"],
-        "drive_time": best["drive_time"],
-        "best_window": best["best_window"],
-        "dry_score": best["dry_score"],
-        "temperature": best["temperature"],
-        "rain": best["rain"],
-        "wind": best["wind"],
-        "reason": best["reason"],
-        "alternates": filtered[1:]
-    }
