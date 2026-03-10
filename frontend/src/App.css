@@ -397,4 +397,12 @@ body {
   text-decoration: none;
   font-weight: 600;
   font-size: 12px;
+}.crag-meta-line {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  font-size: 0.9rem;
+  color: #64748b;
+  text-transform: capitalize;
 }

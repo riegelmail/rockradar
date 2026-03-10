@@ -43,7 +43,7 @@ function App() {
       <div className="container">
         <div className="hero-card">
           <div className="hero-text">
-            <p className="eyebrow">Climbing conditions</p>
+            <p className="eyebrow">Where should you climb today?</p>
             <h1>RockRadar</h1>
 
             <div className="hero-meta">
@@ -99,6 +99,11 @@ function App() {
             <div className="crag-header-text">
               <div className="rank-pill">#1 Top Pick</div>
               <h2 className="crag-name">{data.best_area}</h2>
+              <div className="crag-meta-line">
+                <span>{data.rock_type || "Rock type TBD"}</span>
+                <span>·</span>
+                <span>{data.style}</span>
+              </div>
             </div>
           </div>
 
@@ -174,6 +179,11 @@ function App() {
                   <div className="alternate-header-text">
                     <div className="rank-pill">#{index + 2}</div>
                     <h3>{alt.area}</h3>
+                    <div className="crag-meta-line">
+                      <span>{alt.rock_type || "Rock type TBD"}</span>
+                      <span>·</span>
+                      <span>{alt.style}</span>
+                    </div>
                   </div>
                 </div>
 
