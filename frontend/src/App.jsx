@@ -15,8 +15,15 @@ const cragPhotos = {
     "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b",
 
   "Exit 38 – North Bend":
-    "https://images.unsplash.com/photo-1501785888041-af3ef285b470"
+    "https://images.unsplash.com/photo-1501785888041-af3ef285b470",
+
+  "Leavenworth – Icicle Canyon":
+    "https://images.unsplash.com/photo-1506744038136-46273834b3fb"
 };
+
+function getMapLink(area) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
+}
 
 function App() {
   const [data, setData] = useState(null);
@@ -39,7 +46,6 @@ function App() {
   return (
     <div className="app-shell">
       <div className="container">
-
         <div className="hero-card">
           <div className="hero-text">
             <p className="eyebrow">Climbing conditions</p>
@@ -85,17 +91,20 @@ function App() {
         </div>
 
         <div className="top-pick-card">
-
           <div className="crag-header">
-
             <img
               className="crag-photo"
-              src={cragPhotos[data.best_area] || "https://images.unsplash.com/photo-1522163182402-834f871fd851"}
+              src={
+                cragPhotos[data.best_area] ||
+                "https://images.unsplash.com/photo-1522163182402-834f871fd851"
+              }
               alt={data.best_area}
             />
 
-            <h2 className="crag-name">{data.best_area}</h2>
-
+            <div className="crag-header-text">
+              <div className="rank-pill">#1 Top Pick</div>
+              <h2 className="crag-name">{data.best_area}</h2>
+            </div>
           </div>
 
           <div className="stats-grid">
@@ -141,8 +150,69 @@ function App() {
             <p>{data.reason}</p>
           </div>
 
+          <a
+            className="nav-button"
+            href={getMapLink(data.best_area)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Navigate
+          </a>
         </div>
 
+        <div className="alternates-section">
+          <h2 className="alternates-title">Ranked Backups</h2>
+
+          <div className="alternates-grid">
+            {data.alternates.map((alt, index) => (
+              <div className="alternate-card" key={alt.area}>
+                <div className="alternate-top">
+                  <img
+                    className="alternate-photo"
+                    src={
+                      cragPhotos[alt.area] ||
+                      "https://images.unsplash.com/photo-1522163182402-834f871fd851"
+                    }
+                    alt={alt.area}
+                  />
+
+                  <div className="alternate-header-text">
+                    <div className="rank-pill">#{index + 2}</div>
+                    <h3>{alt.area}</h3>
+                  </div>
+                </div>
+
+                <div className="alternate-stats">
+                  <div className="mini-stat">
+                    <span>Drive</span>
+                    <strong>{alt.drive_time} hrs</strong>
+                  </div>
+
+                  <div className="mini-stat">
+                    <span>Window</span>
+                    <strong>{alt.best_window}</strong>
+                  </div>
+
+                  <div className="mini-stat">
+                    <span>Dry score</span>
+                    <strong>{alt.dry_score}</strong>
+                  </div>
+                </div>
+
+                <p className="alternate-reason">{alt.reason}</p>
+
+                <a
+                  className="nav-button small"
+                  href={getMapLink(alt.area)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Navigate
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
