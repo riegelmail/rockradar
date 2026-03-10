@@ -2,7 +2,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 from math import radians, sin, cos, sqrt, atan2
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
@@ -29,7 +29,7 @@ CRAGS = [
     {"name": "Vantage – Frenchman Coulee", "style": "sport", "lat": 46.9490, "lon": -119.9875},
 ]
 
-# fallback values used if live weather API is rate-limited
+# Fallback values if live weather API is unavailable or rate-limited
 FALLBACK_WEATHER = {
     "Index – River Boulders": {"temperature_2m": 3.0, "wind_speed_10m": 2.0, "precipitation": 0.2, "rain_last_24h": 1.0},
     "Index – Overhung / Hagakure-ish": {"temperature_2m": 3.0, "wind_speed_10m": 2.0, "precipitation": 0.2, "rain_last_24h": 1.0},
@@ -38,6 +38,13 @@ FALLBACK_WEATHER = {
     "Exit 38 – North Bend": {"temperature_2m": 2.0, "wind_speed_10m": 3.0, "precipitation": 0.3, "rain_last_24h": 1.5},
     "Vantage – Frenchman Coulee": {"temperature_2m": 11.0, "wind_speed_10m": 12.0, "precipitation": 0.0, "rain_last_24h": 0.0},
 }
+
+# Simple in-memory cache for weather results
+WEATHER_CACHE = {
+    "timestamp": None,
+    "data": None,
+}
+CACHE_TTL_MINUTES = 10
 
 
 def c_to_f(c):
@@ -84,7 +91,29 @@ def next_daylight_window(delay_hours):
     return f"{start.strftime('%-I %p')} – {end.strftime('%-I %p')}"
 
 
+def build_fallback_results(crags):
+    results = []
+    for crag in crags:
+        fallback = FALLBACK_WEATHER[crag["name"]]
+        current = {
+            "temperature_2m": fallback["temperature_2m"],
+            "wind_speed_10m": fallback["wind_speed_10m"],
+            "precipitation": fallback["precipitation"],
+        }
+        rain_last_24h = fallback["rain_last_24h"]
+        results.append((current, rain_last_24h, "fallback"))
+    return results
+
+
 def get_weather_batch(crags):
+    now = datetime.now(timezone.utc)
+
+    # Return cached data if still fresh
+    if WEATHER_CACHE["timestamp"] and WEATHER_CACHE["data"]:
+        age = now - WEATHER_CACHE["timestamp"]
+        if age < timedelta(minutes=CACHE_TTL_MINUTES):
+            return WEATHER_CACHE["data"]
+
     lats = ",".join(str(c["lat"]) for c in crags)
     lons = ",".join(str(c["lon"]) for c in crags)
 
@@ -108,21 +137,23 @@ def get_weather_batch(crags):
             rain_last_24h = sum(data["hourly"]["precipitation"][i][-24:])
             results.append((current, rain_last_24h, "live"))
 
+        WEATHER_CACHE["timestamp"] = now
+        WEATHER_CACHE["data"] = results
         return results
 
     except Exception:
-        results = []
-        for crag in crags:
-            fallback = FALLBACK_WEATHER[crag["name"]]
-            current = {
-                "temperature_2m": fallback["temperature_2m"],
-                "wind_speed_10m": fallback["wind_speed_10m"],
-                "precipitation": fallback["precipitation"],
-            }
-            rain_last_24h = fallback["rain_last_24h"]
-            results.append((current, rain_last_24h, "fallback"))
+        # If live fetch fails, try stale cache first
+        if WEATHER_CACHE["data"]:
+            return [
+                (item[0], item[1], "cached")
+                for item in WEATHER_CACHE["data"]
+            ]
 
-        return results
+        # Otherwise use fallback weather and cache it too
+        fallback_results = build_fallback_results(crags)
+        WEATHER_CACHE["timestamp"] = now
+        WEATHER_CACHE["data"] = fallback_results
+        return fallback_results
 
 
 def score_crag(crag, weather_tuple):
@@ -157,6 +188,8 @@ def score_crag(crag, weather_tuple):
     reason = "Weather and drying conditions evaluated"
     if source == "fallback":
         reason += " (using fallback weather due to API rate limit)"
+    elif source == "cached":
+        reason += " (using cached weather)"
 
     return {
         "area": crag["name"],
