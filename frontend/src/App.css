@@ -224,4 +224,17 @@ body {
   .alternates-grid {
     grid-template-columns: 1fr;
   }
+}.crag-header {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.crag-photo {
+  width: 140px;
+  height: 140px;
+  border-radius: 18px;
+  object-fit: cover;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.12);
 }
