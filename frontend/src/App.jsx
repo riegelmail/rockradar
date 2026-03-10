@@ -22,7 +22,6 @@ function App() {
   return (
     <div className="app-shell">
       <div className="container">
-
         <div className="hero-card">
           <div className="hero-text">
             <p className="eyebrow">Climbing conditions</p>
@@ -68,8 +67,15 @@ function App() {
         </div>
 
         <div className="top-pick-card">
+          <div className="crag-header">
+            <img
+              className="crag-photo"
+              src="https://images.unsplash.com/photo-1522163182402-834f871fd851"
+              alt="Climbing"
+            />
 
-          <h2 className="crag-name">{data.best_area}</h2>
+            <h2 className="crag-name">{data.best_area}</h2>
+          </div>
 
           <div className="stats-grid">
             <div className="stat-box">
@@ -114,7 +120,6 @@ function App() {
             <p>{data.reason}</p>
           </div>
         </div>
-
       </div>
     </div>
   );
