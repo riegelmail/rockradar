@@ -20,19 +20,34 @@ function getMapLink(area) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
 }
 
+function scoreClass(score) {
+  if (score >= 90) return "score-pill score-green";
+  if (score >= 75) return "score-pill score-yellow";
+  if (score >= 60) return "score-pill score-orange";
+  return "score-pill score-red";
+}
+
 function App() {
+  const defaultHome = localStorage.getItem("rockradarHome") || "Mirrormont, WA";
   const [data, setData] = useState(null);
   const [maxHours, setMaxHours] = useState(3);
   const [style, setStyle] = useState("all");
+  const [homeInput, setHomeInput] = useState(defaultHome);
+  const [homeBase, setHomeBase] = useState(defaultHome);
 
   useEffect(() => {
     fetch(
-      `https://rockradar-backend.onrender.com/api/recommendations?max_hours=${maxHours}&style=${style}`
+      `https://rockradar-backend.onrender.com/api/recommendations?max_hours=${maxHours}&style=${style}&home_query=${encodeURIComponent(homeBase)}`
     )
       .then((res) => res.json())
-      .then((data) => setData(data))
+      .then((json) => setData(json))
       .catch((err) => console.error(err));
-  }, [maxHours, style]);
+  }, [maxHours, style, homeBase]);
+
+  function applyHomeBase() {
+    localStorage.setItem("rockradarHome", homeInput);
+    setHomeBase(homeInput);
+  }
 
   if (!data) {
     return <div className="container">Loading RockRadar...</div>;
@@ -43,12 +58,14 @@ function App() {
       <div className="container">
         <div className="hero-card">
           <div className="hero-text">
-            <p className="eyebrow">Where should you climb today?</p>
+            <p className="eyebrow">Find best conditions near you</p>
             <h1>RockRadar</h1>
 
             <div className="hero-meta">
               <span className="meta-pill">Home: {data.home}</span>
-              <span className="meta-pill">Top pick: {data.best_area}</span>
+              <span className={`meta-pill ${scoreClass(data.dry_score)}`}>
+                Dry Score: {data.dry_score}
+              </span>
             </div>
           </div>
 
@@ -58,6 +75,19 @@ function App() {
         </div>
 
         <div className="controls-card">
+          <div className="control-group control-group-wide">
+            <label>Home base (zip or city/state)</label>
+            <div className="home-row">
+              <input
+                type="text"
+                value={homeInput}
+                onChange={(e) => setHomeInput(e.target.value)}
+                placeholder="98101 or Seattle, WA"
+              />
+              <button onClick={applyHomeBase}>Update</button>
+            </div>
+          </div>
+
           <div className="control-group">
             <label>Max drive time</label>
             <select
@@ -97,12 +127,15 @@ function App() {
             />
 
             <div className="crag-header-text">
-              <div className="rank-pill">#1 Top Pick</div>
+              <div className="crag-top-row">
+                <div className="rank-pill">#1 Top Pick</div>
+                <div className={scoreClass(data.dry_score)}>{data.dry_score}</div>
+              </div>
+
               <h2 className="crag-name">{data.best_area}</h2>
+
               <div className="crag-meta-line">
-                <span>{data.rock_type || "Rock type TBD"}</span>
-                <span>·</span>
-                <span>{data.style}</span>
+                <span>{data.rock_type || "unknown rock"}</span>
               </div>
             </div>
           </div>
@@ -119,18 +152,31 @@ function App() {
             </div>
 
             <div className="stat-box">
-              <span className="stat-label">Dry score</span>
-              <span className="stat-value">{data.dry_score}</span>
+              <span className="stat-label">Overhang</span>
+              <span className="stat-value">{data.overhang || "n/a"}</span>
             </div>
           </div>
 
           <div className="conditions-card">
-            <h3>Conditions</h3>
+            <div className="section-card-head">
+              <h3>Conditions</h3>
+              <span className="freshness-text">{data.freshness_text}</span>
+            </div>
 
             <div className="conditions-grid">
               <div className="condition-pill">
                 <span>Temp</span>
                 <strong>{data.temperature}°F</strong>
+              </div>
+
+              <div className="condition-pill">
+                <span>Humidity</span>
+                <strong>{data.humidity}%</strong>
+              </div>
+
+              <div className="condition-pill">
+                <span>Dew Pt</span>
+                <strong>{data.dew_point}°F</strong>
               </div>
 
               <div className="condition-pill">
@@ -145,8 +191,40 @@ function App() {
             </div>
           </div>
 
+          {data.forecast && data.forecast.length > 0 && (
+            <div className="forecast-card">
+              <div className="section-card-head">
+                <h3>5-Day Climbing Forecast</h3>
+              </div>
+
+              <div className="forecast-strip">
+                {data.forecast.map((day) => (
+                  <div className="forecast-day" key={day.day}>
+                    <div className="forecast-day-name">{day.day}</div>
+                    <div className={scoreClass(day.score)}>{day.score}</div>
+                    <div className="forecast-temps">
+                      {day.high}° / {day.low}°
+                    </div>
+                    <div className="forecast-precip">
+                      {day.precip}" precip
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="why-card">
-            <h3>Why</h3>
+            <div className="section-card-head">
+              <h3>Why</h3>
+              <a
+                href="#"
+                className="scoring-link"
+                onClick={(e) => e.preventDefault()}
+              >
+                How scoring works
+              </a>
+            </div>
             <p>{data.reason}</p>
           </div>
 
@@ -177,12 +255,15 @@ function App() {
                   />
 
                   <div className="alternate-header-text">
-                    <div className="rank-pill">#{index + 2}</div>
+                    <div className="crag-top-row">
+                      <div className="rank-pill">#{index + 2}</div>
+                      <div className={scoreClass(alt.dry_score)}>{alt.dry_score}</div>
+                    </div>
+
                     <h3>{alt.area}</h3>
+
                     <div className="crag-meta-line">
-                      <span>{alt.rock_type || "Rock type TBD"}</span>
-                      <span>·</span>
-                      <span>{alt.style}</span>
+                      <span>{alt.rock_type || "unknown rock"}</span>
                     </div>
                   </div>
                 </div>
@@ -199,8 +280,8 @@ function App() {
                   </div>
 
                   <div className="mini-stat">
-                    <span>Dry score</span>
-                    <strong>{alt.dry_score}</strong>
+                    <span>Overhang</span>
+                    <strong>{alt.overhang || "n/a"}</strong>
                   </div>
                 </div>
 

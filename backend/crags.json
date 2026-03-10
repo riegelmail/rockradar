@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Index – River Boulders",
+    "style": "bouldering",
+    "rock_type": "granite",
+    "lat": 47.8216,
+    "lon": -121.5704,
+    "overhang": 0.7,
+    "wet_sensitive": "high"
+  },
+  {
+    "name": "Index – Overhung / Hagakure-ish",
+    "style": "bouldering",
+    "rock_type": "granite",
+    "lat": 47.8230,
+    "lon": -121.5666,
+    "overhang": 0.9,
+    "wet_sensitive": "high"
+  },
+  {
+    "name": "Tieton – The Bend",
+    "style": "bouldering",
+    "rock_type": "basalt",
+    "lat": 46.642,
+    "lon": -120.955,
+    "overhang": 0.6,
+    "wet_sensitive": "low"
+  },
+  {
+    "name": "Leavenworth – Icicle Canyon",
+    "style": "trad",
+    "rock_type": "granite",
+    "lat": 47.5952,
+    "lon": -120.6615,
+    "overhang": 0.3,
+    "wet_sensitive": "medium"
+  },
+  {
+    "name": "Exit 38 – North Bend",
+    "style": "sport",
+    "rock_type": "volcanic",
+    "lat": 47.4362,
+    "lon": -121.4151,
+    "overhang": 0.4,
+    "wet_sensitive": "medium"
+  },
+  {
+    "name": "Vantage – Frenchman Coulee",
+    "style": "sport",
+    "rock_type": "basalt",
+    "lat": 46.949,
+    "lon": -119.9875,
+    "overhang": 0.5,
+    "wet_sensitive": "low"
+  }
+]
