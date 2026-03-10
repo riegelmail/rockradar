@@ -4,21 +4,16 @@ import "./App.css";
 const cragPhotos = {
   "Index – River Boulders":
     "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
-
   "Index – Overhung / Hagakure-ish":
     "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
-
   "Vantage – Frenchman Coulee":
     "https://images.unsplash.com/photo-1522163182402-834f871fd851",
-
   "Tieton – The Bend":
     "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b",
-
   "Exit 38 – North Bend":
     "https://images.unsplash.com/photo-1501785888041-af3ef285b470",
-
   "Leavenworth – Icicle Canyon":
-    "https://images.unsplash.com/photo-1506744038136-46273834b3fb"
+    "https://images.unsplash.com/photo-1506744038136-46273834b3fb",
 };
 
 function getMapLink(area) {
