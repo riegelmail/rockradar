@@ -21,25 +21,108 @@ HOME = {
 }
 
 CRAGS = [
-    {"name": "Index – River Boulders", "style": "bouldering", "lat": 47.8216, "lon": -121.5704},
-    {"name": "Index – Overhung / Hagakure-ish", "style": "bouldering", "lat": 47.8230, "lon": -121.5666},
-    {"name": "Tieton – The Bend", "style": "bouldering", "lat": 46.642, "lon": -120.955},
-    {"name": "Leavenworth – Icicle Canyon", "style": "trad", "lat": 47.5952, "lon": -120.6615},
-    {"name": "Exit 38 – North Bend", "style": "sport", "lat": 47.4362, "lon": -121.4151},
-    {"name": "Vantage – Frenchman Coulee", "style": "sport", "lat": 46.9490, "lon": -119.9875},
+    {
+        "name": "Index – River Boulders",
+        "style": "bouldering",
+        "lat": 47.8216,
+        "lon": -121.5704,
+        "rock_type": "granite",
+        "sun_exposure": "low",
+    },
+    {
+        "name": "Index – Overhung / Hagakure-ish",
+        "style": "bouldering",
+        "lat": 47.8230,
+        "lon": -121.5666,
+        "rock_type": "granite",
+        "sun_exposure": "medium",
+    },
+    {
+        "name": "Tieton – The Bend",
+        "style": "bouldering",
+        "lat": 46.642,
+        "lon": -120.955,
+        "rock_type": "basalt",
+        "sun_exposure": "high",
+    },
+    {
+        "name": "Leavenworth – Icicle Canyon",
+        "style": "trad",
+        "lat": 47.5952,
+        "lon": -120.6615,
+        "rock_type": "granite",
+        "sun_exposure": "high",
+    },
+    {
+        "name": "Exit 38 – North Bend",
+        "style": "sport",
+        "lat": 47.4362,
+        "lon": -121.4151,
+        "rock_type": "volcanic",
+        "sun_exposure": "low",
+    },
+    {
+        "name": "Vantage – Frenchman Coulee",
+        "style": "sport",
+        "lat": 46.9490,
+        "lon": -119.9875,
+        "rock_type": "basalt",
+        "sun_exposure": "high",
+    },
 ]
 
 # Fallback values if live weather API is unavailable or rate-limited
 FALLBACK_WEATHER = {
-    "Index – River Boulders": {"temperature_2m": 3.0, "wind_speed_10m": 2.0, "precipitation": 0.2, "rain_last_24h": 1.0},
-    "Index – Overhung / Hagakure-ish": {"temperature_2m": 3.0, "wind_speed_10m": 2.0, "precipitation": 0.2, "rain_last_24h": 1.0},
-    "Tieton – The Bend": {"temperature_2m": 8.0, "wind_speed_10m": 10.0, "precipitation": 0.0, "rain_last_24h": 0.0},
-    "Leavenworth – Icicle Canyon": {"temperature_2m": 6.0, "wind_speed_10m": 6.0, "precipitation": 0.0, "rain_last_24h": 0.0},
-    "Exit 38 – North Bend": {"temperature_2m": 2.0, "wind_speed_10m": 3.0, "precipitation": 0.3, "rain_last_24h": 1.5},
-    "Vantage – Frenchman Coulee": {"temperature_2m": 11.0, "wind_speed_10m": 12.0, "precipitation": 0.0, "rain_last_24h": 0.0},
+    "Index – River Boulders": {
+        "temperature_2m": 3.0,
+        "wind_speed_10m": 2.0,
+        "precipitation": 0.2,
+        "rain_last_24h": 1.0,
+        "relative_humidity_2m": 88,
+        "dew_point_2m": 1.0,
+    },
+    "Index – Overhung / Hagakure-ish": {
+        "temperature_2m": 3.0,
+        "wind_speed_10m": 2.0,
+        "precipitation": 0.2,
+        "rain_last_24h": 1.0,
+        "relative_humidity_2m": 88,
+        "dew_point_2m": 1.0,
+    },
+    "Tieton – The Bend": {
+        "temperature_2m": 8.0,
+        "wind_speed_10m": 10.0,
+        "precipitation": 0.0,
+        "rain_last_24h": 0.0,
+        "relative_humidity_2m": 50,
+        "dew_point_2m": -1.0,
+    },
+    "Leavenworth – Icicle Canyon": {
+        "temperature_2m": 6.0,
+        "wind_speed_10m": 6.0,
+        "precipitation": 0.0,
+        "rain_last_24h": 0.0,
+        "relative_humidity_2m": 55,
+        "dew_point_2m": -2.0,
+    },
+    "Exit 38 – North Bend": {
+        "temperature_2m": 2.0,
+        "wind_speed_10m": 3.0,
+        "precipitation": 0.3,
+        "rain_last_24h": 1.5,
+        "relative_humidity_2m": 92,
+        "dew_point_2m": 1.0,
+    },
+    "Vantage – Frenchman Coulee": {
+        "temperature_2m": 11.0,
+        "wind_speed_10m": 12.0,
+        "precipitation": 0.0,
+        "rain_last_24h": 0.0,
+        "relative_humidity_2m": 40,
+        "dew_point_2m": -3.0,
+    },
 }
 
-# Simple in-memory cache for weather results
 WEATHER_CACHE = {
     "timestamp": None,
     "data": None,
@@ -99,6 +182,8 @@ def build_fallback_results(crags):
             "temperature_2m": fallback["temperature_2m"],
             "wind_speed_10m": fallback["wind_speed_10m"],
             "precipitation": fallback["precipitation"],
+            "relative_humidity_2m": fallback["relative_humidity_2m"],
+            "dew_point_2m": fallback["dew_point_2m"],
         }
         rain_last_24h = fallback["rain_last_24h"]
         results.append((current, rain_last_24h, "fallback"))
@@ -108,7 +193,6 @@ def build_fallback_results(crags):
 def get_weather_batch(crags):
     now = datetime.now(timezone.utc)
 
-    # Return cached data if still fresh
     if WEATHER_CACHE["timestamp"] and WEATHER_CACHE["data"]:
         age = now - WEATHER_CACHE["timestamp"]
         if age < timedelta(minutes=CACHE_TTL_MINUTES):
@@ -121,7 +205,7 @@ def get_weather_batch(crags):
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={lats}"
         f"&longitude={lons}"
-        "&current=temperature_2m,wind_speed_10m,precipitation"
+        "&current=temperature_2m,wind_speed_10m,precipitation,relative_humidity_2m,dew_point_2m"
         "&hourly=precipitation"
         "&past_days=1"
     )
@@ -142,14 +226,9 @@ def get_weather_batch(crags):
         return results
 
     except Exception:
-        # If live fetch fails, try stale cache first
         if WEATHER_CACHE["data"]:
-            return [
-                (item[0], item[1], "cached")
-                for item in WEATHER_CACHE["data"]
-            ]
+            return [(item[0], item[1], "cached") for item in WEATHER_CACHE["data"]]
 
-        # Otherwise use fallback weather and cache it too
         fallback_results = build_fallback_results(crags)
         WEATHER_CACHE["timestamp"] = now
         WEATHER_CACHE["data"] = fallback_results
@@ -162,22 +241,59 @@ def score_crag(crag, weather_tuple):
     temp_f = c_to_f(weather["temperature_2m"])
     wind_mph = kmh_to_mph(weather["wind_speed_10m"])
     rain_now = weather["precipitation"]
+    humidity = weather.get("relative_humidity_2m", 0)
+    dew_c = weather.get("dew_point_2m", 0)
+    dew_f = c_to_f(dew_c)
 
     miles = miles_between(HOME["lat"], HOME["lon"], crag["lat"], crag["lon"])
     drive_time = drive_time_hours(miles)
 
     score = 80
+
+    # Rain matters a lot
     score -= rain_24h * 3
     score -= rain_now * 15
 
+    # Wind can help drying, unless too strong
     if wind_mph <= 8:
         score += wind_mph * 0.4
     else:
         score -= (wind_mph - 8) * 0.5
 
+    # General temperature effect
     if temp_f >= 45:
         score += 3
     elif temp_f <= 34:
+        score -= 2
+
+    # Bouldering is extra temperature-sensitive
+    if crag["style"] == "bouldering":
+        if temp_f <= 50:
+            score += 4
+        elif temp_f <= 60:
+            score += 2
+        elif temp_f > 70:
+            score -= 4
+
+    # Humidity / friction
+    if humidity < 60:
+        score += 4
+    elif humidity < 75:
+        score += 1
+    else:
+        score -= 5
+
+    # Dew point spread helps friction
+    dew_spread = temp_f - dew_f
+    if dew_spread >= 10:
+        score += 3
+    elif dew_spread < 4:
+        score -= 4
+
+    # Sun exposure
+    if crag.get("sun_exposure") == "high":
+        score += 3
+    elif crag.get("sun_exposure") == "low":
         score -= 2
 
     score = max(0, min(100, round(score)))
@@ -187,17 +303,20 @@ def score_crag(crag, weather_tuple):
 
     reason = "Weather and drying conditions evaluated"
     if source == "fallback":
-        reason += " (using fallback weather due to API rate limit)"
+        reason += " (using cached weather data)"
     elif source == "cached":
-        reason += " (using cached weather)"
+        reason += " (using cached weather data)"
 
     return {
         "area": crag["name"],
         "style": crag["style"],
+        "rock_type": crag.get("rock_type", "unknown"),
         "drive_time": drive_time,
         "best_window": best_window,
         "dry_score": score,
         "temperature": temp_f,
+        "humidity": humidity,
+        "dew_point": dew_f,
         "wind": wind_mph,
         "rain": rain_now,
         "reason": reason,
@@ -227,6 +346,8 @@ def recommendations(
             "best_window": "",
             "dry_score": 0,
             "temperature": 0,
+            "humidity": 0,
+            "dew_point": 0,
             "rain": 0,
             "wind": 0,
             "reason": "Try increasing max drive time or changing style.",
@@ -245,8 +366,11 @@ def recommendations(
         "best_window": best["best_window"],
         "dry_score": best["dry_score"],
         "temperature": best["temperature"],
+        "humidity": best["humidity"],
+        "dew_point": best["dew_point"],
         "rain": best["rain"],
         "wind": best["wind"],
         "reason": best["reason"],
+        "rock_type": best["rock_type"],
         "alternates": filtered[1:],
     }
