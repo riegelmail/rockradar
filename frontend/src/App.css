@@ -224,7 +224,9 @@ body {
   .alternates-grid {
     grid-template-columns: 1fr;
   }
-}.crag-header {
+}
+
+.crag-header {
   display: flex;
   gap: 24px;
   align-items: center;
