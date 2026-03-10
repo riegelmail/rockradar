@@ -1,6 +1,23 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
+const cragPhotos = {
+  "Index – River Boulders":
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
+
+  "Index – Overhung / Hagakure-ish":
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
+
+  "Vantage – Frenchman Coulee":
+    "https://images.unsplash.com/photo-1522163182402-834f871fd851",
+
+  "Tieton – The Bend":
+    "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b",
+
+  "Exit 38 – North Bend":
+    "https://images.unsplash.com/photo-1501785888041-af3ef285b470"
+};
+
 function App() {
   const [data, setData] = useState(null);
   const [maxHours, setMaxHours] = useState(3);
@@ -22,6 +39,7 @@ function App() {
   return (
     <div className="app-shell">
       <div className="container">
+
         <div className="hero-card">
           <div className="hero-text">
             <p className="eyebrow">Climbing conditions</p>
@@ -67,14 +85,17 @@ function App() {
         </div>
 
         <div className="top-pick-card">
+
           <div className="crag-header">
+
             <img
               className="crag-photo"
-              src="https://images.unsplash.com/photo-1522163182402-834f871fd851"
-              alt="Climbing"
+              src={cragPhotos[data.best_area] || "https://images.unsplash.com/photo-1522163182402-834f871fd851"}
+              alt={data.best_area}
             />
 
             <h2 className="crag-name">{data.best_area}</h2>
+
           </div>
 
           <div className="stats-grid">
@@ -119,7 +140,9 @@ function App() {
             <h3>Why</h3>
             <p>{data.reason}</p>
           </div>
+
         </div>
+
       </div>
     </div>
   );
