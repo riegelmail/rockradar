@@ -38,6 +38,15 @@ WEATHER_CACHE = {
 FORECAST_CACHE = {}
 GEOCODE_CACHE = {}
 
+DRIVE_FACTORS = {
+    "Index – River Boulders": 1.2,
+    "Index – Overhung / Hagakure-ish": 1.2,
+    "Tieton – The Bend": 1.9,
+    "Leavenworth – Icicle Canyon": 1.6,
+    "Exit 38 – North Bend": 1.2,
+    "Vantage – Frenchman Coulee": 1.45,
+}
+
 FALLBACK_WEATHER = {
     "Index – River Boulders": {
         "temperature_2m": 3.0,
@@ -107,8 +116,23 @@ def miles_between(lat1, lon1, lat2, lon2):
     return r * c
 
 
-def drive_time_hours(miles):
-    return round(miles / 55, 2)
+def drive_time_hours(miles, crag_name):
+    base_hours = miles / 55
+    factor = DRIVE_FACTORS.get(crag_name, 1.25)
+    return round(base_hours * factor, 2)
+
+
+def overhang_label(value):
+    try:
+        v = float(value)
+    except Exception:
+        return "Unknown"
+
+    if v >= 0.7:
+        return "High"
+    if v >= 0.35:
+        return "Medium"
+    return "Low"
 
 
 def resolve_home(home_query):
@@ -239,14 +263,14 @@ def forecast_score_day(crag, high_c, low_c, precip_sum):
 
     score = 82
 
-    wet_mult = {"low": 0.8, "medium": 1.1, "high": 1.5}.get(
-        crag.get("wet_sensitive", "medium"), 1.1
+    wet_mult = {"low": 0.8, "medium": 1.15, "high": 1.8}.get(
+        crag.get("wet_sensitive", "medium"), 1.15
     )
-    rock_mult = {"basalt": 0.8, "granite": 1.35, "volcanic": 1.1}.get(
+    rock_mult = {"basalt": 0.8, "granite": 1.45, "volcanic": 1.1}.get(
         crag.get("rock_type", ""), 1.0
     )
 
-    score -= precip_sum * 14 * wet_mult * rock_mult
+    score -= precip_sum * 16 * wet_mult * rock_mult
 
     if crag["style"] == "bouldering":
         if 38 <= avg_f <= 52:
@@ -268,16 +292,16 @@ def forecast_score_day(crag, high_c, low_c, precip_sum):
     elif crag.get("sun_exposure") == "low":
         score -= 2
 
-    if crag.get("overhang") == "high" and precip_sum > 0:
+    if crag.get("overhang", 0) >= 0.7 and precip_sum > 0:
         score += 4
-    elif crag.get("overhang") == "low" and precip_sum > 0:
+    elif crag.get("overhang", 0) < 0.35 and precip_sum > 0:
         score -= 4
 
     score = max(0, min(100, round(score)))
-    return score, high_f, low_f
+    return score
 
 
-def get_top_pick_forecast(crag):
+def get_crag_forecast(crag):
     cache_key = crag["name"]
     now = datetime.now(timezone.utc)
 
@@ -302,7 +326,7 @@ def get_top_pick_forecast(crag):
 
         forecast = []
         for i, day in enumerate(data["daily"]["time"]):
-            score, high_f, low_f = forecast_score_day(
+            score = forecast_score_day(
                 crag,
                 data["daily"]["temperature_2m_max"][i],
                 data["daily"]["temperature_2m_min"][i],
@@ -311,9 +335,6 @@ def get_top_pick_forecast(crag):
             forecast.append(
                 {
                     "day": datetime.fromisoformat(day).strftime("%a"),
-                    "high": high_f,
-                    "low": low_f,
-                    "precip": round(data["daily"]["precipitation_sum"][i], 2),
                     "score": score,
                 }
             )
@@ -336,28 +357,25 @@ def score_crag(crag, weather_tuple, home):
     dew_f = c_to_f(dew_c)
 
     miles = miles_between(home["lat"], home["lon"], crag["lat"], crag["lon"])
-    drive_time = drive_time_hours(miles)
+    drive_time = drive_time_hours(miles, crag["name"])
 
     score = 82
 
-    wet_mult = {"low": 0.8, "medium": 1.1, "high": 1.5}.get(
-        crag.get("wet_sensitive", "medium"), 1.1
+    wet_mult = {"low": 0.8, "medium": 1.15, "high": 1.8}.get(
+        crag.get("wet_sensitive", "medium"), 1.15
     )
-    rock_mult = {"basalt": 0.8, "granite": 1.35, "volcanic": 1.1}.get(
+    rock_mult = {"basalt": 0.8, "granite": 1.45, "volcanic": 1.1}.get(
         crag.get("rock_type", ""), 1.0
     )
 
-    # Rain is king in the PNW
-    score -= rain_24h * 8 * wet_mult * rock_mult
-    score -= rain_now * 18 * wet_mult * rock_mult
+    score -= rain_24h * 10 * wet_mult * rock_mult
+    score -= rain_now * 22 * wet_mult * rock_mult
 
-    # Wind helps drying until it becomes annoying
     if wind_mph <= 8:
         score += wind_mph * 0.4
     else:
         score -= (wind_mph - 8) * 0.5
 
-    # Temperature weighting
     if crag["style"] == "bouldering":
         if 38 <= temp_f <= 52:
             score += 7
@@ -375,46 +393,42 @@ def score_crag(crag, weather_tuple, home):
         elif temp_f < 34:
             score -= 2
 
-    # Humidity and friction
     if humidity < 55:
         score += 4
     elif humidity < 70:
         score += 1
     elif humidity < 85:
         score -= 2
+    elif humidity < 90:
+        score -= 6
     else:
-        score -= 8
+        score -= 10
 
-    # Dew point spread
     dew_spread = temp_f - dew_f
     if dew_spread >= 12:
         score += 4
     elif dew_spread >= 7:
         score += 1
     elif dew_spread < 4:
-        score -= 6
+        score -= 8
 
-    # Sun exposure
     if crag.get("sun_exposure") == "high":
         score += 3
     elif crag.get("sun_exposure") == "low":
         score -= 2
 
-    # Overhang matters after rain
     if rain_24h > 0.1:
-        if crag.get("overhang") == "high":
+        if crag.get("overhang", 0) >= 0.7:
             score += 5
-        elif crag.get("overhang") == "low":
+        elif crag.get("overhang", 0) < 0.35:
             score -= 5
 
-    # Strong disqualification for wet-sensitive PNW crags
     if crag.get("wet_sensitive") == "high":
-        if rain_24h > 0.25:
+        if rain_24h > 0.1:
+            score -= 12
+        if humidity > 92 and dew_spread < 4:
             score -= 10
-        if humidity > 90 and dew_spread < 4:
-            score -= 8
 
-    # Snow / near-freezing wet rock = bad news
     if temp_f <= 36 and rain_now > 0:
         score -= 8
 
@@ -434,7 +448,7 @@ def score_crag(crag, weather_tuple, home):
         "area": crag["name"],
         "style": crag["style"],
         "rock_type": crag.get("rock_type", "unknown"),
-        "overhang": crag.get("overhang", "unknown"),
+        "overhang": overhang_label(crag.get("overhang", 0)),
         "wet_sensitive": crag.get("wet_sensitive", "medium"),
         "drive_time": drive_time,
         "best_window": best_window,
@@ -487,7 +501,17 @@ def recommendations(
     filtered.sort(key=lambda x: x["dry_score"], reverse=True)
     best = filtered[0]
     best_crag_data = next(c for c in CRAGS if c["name"] == best["area"])
-    forecast = get_top_pick_forecast(best_crag_data)
+    forecast = get_crag_forecast(best_crag_data)
+
+    alternates = []
+    for alt in filtered[1:4]:
+        alt_crag_data = next(c for c in CRAGS if c["name"] == alt["area"])
+        alternates.append(
+            {
+                **alt,
+                "forecast": get_crag_forecast(alt_crag_data),
+            }
+        )
 
     return {
         "home": home["name"],
@@ -507,5 +531,5 @@ def recommendations(
         "overhang": best["overhang"],
         "freshness_text": best["freshness_text"],
         "forecast": forecast,
-        "alternates": filtered[1:],
+        "alternates": alternates,
     }

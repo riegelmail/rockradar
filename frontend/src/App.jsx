@@ -89,7 +89,12 @@ function App() {
           </div>
 
           <div className="hero-icon-wrap">
-            <div className="hero-icon">🧗</div>
+            <img
+              src="https://images.unsplash.com/photo-1519681393784-d120267933ba"
+              className="hero-icon"
+              alt="climbing hold"
+              style={{ objectFit: "cover" }}
+            />
           </div>
         </div>
 
@@ -107,30 +112,32 @@ function App() {
             </div>
           </div>
 
-          <div className="control-group">
-            <label>Max drive time</label>
-            <select
-              value={maxHours}
-              onChange={(e) => setMaxHours(e.target.value)}
-            >
-              <option value="1">1 hour</option>
-              <option value="2">2 hours</option>
-              <option value="3">3 hours</option>
-              <option value="4">4 hours</option>
-            </select>
-          </div>
+          <div className="control-row">
+            <div className="control-group">
+              <label>Max drive time</label>
+              <select
+                value={maxHours}
+                onChange={(e) => setMaxHours(e.target.value)}
+              >
+                <option value="1">1 hour</option>
+                <option value="2">2 hours</option>
+                <option value="3">3 hours</option>
+                <option value="4">4 hours</option>
+              </select>
+            </div>
 
-          <div className="control-group">
-            <label>Climbing style</label>
-            <select
-              value={style}
-              onChange={(e) => setStyle(e.target.value)}
-            >
-              <option value="all">All</option>
-              <option value="sport">Sport</option>
-              <option value="trad">Trad</option>
-              <option value="bouldering">Bouldering</option>
-            </select>
+            <div className="control-group">
+              <label>Climbing style</label>
+              <select
+                value={style}
+                onChange={(e) => setStyle(e.target.value)}
+              >
+                <option value="all">All</option>
+                <option value="sport">Sport</option>
+                <option value="trad">Trad</option>
+                <option value="bouldering">Bouldering</option>
+              </select>
+            </div>
           </div>
         </div>
 
