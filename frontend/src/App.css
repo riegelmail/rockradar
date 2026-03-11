@@ -12,27 +12,19 @@ body {
   margin: 0;
   color: #1f2937;
   min-height: 100vh;
-
-  background: linear-gradient(
-    180deg,
-    #e7efe8 0%,
-    #dbe6df 40%,
-    #cfdcd5 100%
-  );
-  background-attachment: fixed;
-
+  background:
+    radial-gradient(circle at top left, rgba(180, 205, 185, 0.45), transparent 28%),
+    radial-gradient(circle at top right, rgba(150, 180, 160, 0.24), transparent 30%),
+    linear-gradient(180deg, #edf3ec 0%, #dde8df 55%, #d2e0d8 100%);
   position: relative;
 }
-
-/* subtle topo-style overlay */
 
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.18;
-
+  opacity: 0.16;
   background-image:
     repeating-linear-gradient(
       12deg,
@@ -62,14 +54,12 @@ body::before {
   margin: 0 auto;
 }
 
-/* cards */
-
 .hero-card,
 .controls-card,
 .top-pick-card,
 .alternate-card {
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(10px);
   box-shadow: 0 10px 30px rgba(24, 42, 28, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -134,8 +124,6 @@ body::before {
   background: linear-gradient(135deg, #e0eee1, #cfe1d2);
 }
 
-/* controls */
-
 .controls-card {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -188,8 +176,6 @@ body::before {
   cursor: pointer;
 }
 
-/* crag */
-
 .top-pick-card {
   padding: 28px;
   margin-bottom: 26px;
@@ -206,20 +192,46 @@ body::before {
   height: 140px;
   border-radius: 18px;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.crag-header-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.crag-top-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.rank-pill {
+  display: inline-flex;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 800;
+  color: #33624a;
+  background: rgba(70, 122, 88, 0.1);
+  padding: 6px 10px;
+  border-radius: 999px;
 }
 
 .crag-name {
   margin: 0;
   font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.05;
+  color: #1f2937;
 }
 
 .crag-meta-line {
   margin-top: 6px;
   font-size: 0.9rem;
   color: #64748b;
+  text-transform: capitalize;
 }
-
-/* score */
 
 .score-pill {
   display: inline-flex;
@@ -252,7 +264,166 @@ body::before {
   color: #991b1b;
 }
 
-/* alternates */
+.stats-grid {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.stat-box {
+  padding: 16px;
+  border-radius: 16px;
+  background: #f3f7f2;
+  border: 1px solid #e2ece1;
+}
+
+.stat-label {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-weight: 800;
+}
+
+.conditions-card,
+.why-card,
+.forecast-card {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 18px;
+  background: #f8fbf8;
+  border: 1px solid #e7eee7;
+}
+
+.section-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.section-card-head h3 {
+  margin: 0;
+}
+
+.freshness-text {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.conditions-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.condition-pill {
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #e3ebe2;
+}
+
+.condition-pill span {
+  display: block;
+  font-size: 0.76rem;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.condition-pill strong {
+  font-size: 0.96rem;
+}
+
+.forecast-score-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.forecast-score-row.compact {
+  gap: 6px;
+}
+
+.forecast-score-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  border: 1px solid #e3ebe2;
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.forecast-score-row.compact .forecast-score-item {
+  padding: 8px 6px;
+  border-radius: 10px;
+}
+
+.forecast-score-day {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #475569;
+}
+
+.forecast-score-row.compact .forecast-score-day {
+  font-size: 0.72rem;
+}
+
+.scoring-link {
+  font-size: 0.84rem;
+  color: #467a58;
+  text-decoration: none;
+}
+
+.why-card p {
+  margin: 0;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.nav-button {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: #467a58;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.nav-button.small {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  margin-top: 12px;
+}
+
+.alternates-section {
+  margin-top: 30px;
+}
+
+.alternates-header {
+  margin-bottom: 18px;
+}
+
+.alternates-title {
+  font-size: 1.6rem;
+  margin: 0 0 6px;
+}
+
+.alternates-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.95rem;
+}
 
 .alternates-grid {
   display: grid;
@@ -262,6 +433,15 @@ body::before {
 
 .alternate-card {
   padding: 20px;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.alternate-top {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 .alternate-photo {
@@ -269,16 +449,69 @@ body::before {
   height: 82px;
   border-radius: 14px;
   object-fit: cover;
+  flex-shrink: 0;
 }
 
-/* responsive */
+.alternate-header-text h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
 
-@media (max-width: 900px) {
+.alternate-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+}
+
+.mini-stat span {
+  font-size: 0.76rem;
+  color: #64748b;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.mini-stat strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.backup-forecast-block {
+  margin-top: 12px;
+}
+
+.backup-forecast-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 980px) {
   .alternates-grid {
     grid-template-columns: 1fr;
   }
+}
 
-  .controls-card {
+@media (max-width: 768px) {
+  .app-shell {
+    padding: 18px 12px 36px;
+  }
+
+  .hero-card {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 22px;
+  }
+
+  .controls-card,
+  .stats-grid,
+  .conditions-grid,
+  .forecast-score-row,
+  .alternates-grid {
     grid-template-columns: 1fr;
   }
 
@@ -290,5 +523,14 @@ body::before {
   .crag-photo {
     width: 100%;
     height: 200px;
+  }
+
+  .alternate-top {
+    align-items: flex-start;
+  }
+
+  .alternate-stats,
+  .home-row {
+    flex-direction: column;
   }
 }

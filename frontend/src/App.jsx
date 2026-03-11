@@ -11,7 +11,7 @@ const cragPhotos = {
   "Tieton – The Bend":
     "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b",
   "Exit 38 – North Bend":
-    "https://images.unsplash.com/photo-1501785888041-af3ef285b470",
+    "https://images.unsplash.com/photo-1441974231531-c6227db76b6e",
   "Leavenworth – Icicle Canyon":
     "https://images.unsplash.com/photo-1506744038136-46273834b3fb",
 };
@@ -27,13 +27,32 @@ function scoreClass(score) {
   return "score-pill score-red";
 }
 
+function getInitialHome() {
+  if (typeof window === "undefined") return "Mirrormont, WA";
+  return localStorage.getItem("rockradarHome") || "Mirrormont, WA";
+}
+
+function ForecastScoreRow({ forecast, compact = false }) {
+  if (!forecast || forecast.length === 0) return null;
+
+  return (
+    <div className={`forecast-score-row ${compact ? "compact" : ""}`}>
+      {forecast.map((day) => (
+        <div className="forecast-score-item" key={day.day}>
+          <span className="forecast-score-day">{day.day}</span>
+          <span className={scoreClass(day.score)}>{day.score}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function App() {
-  const defaultHome = localStorage.getItem("rockradarHome") || "Mirrormont, WA";
   const [data, setData] = useState(null);
   const [maxHours, setMaxHours] = useState(3);
   const [style, setStyle] = useState("all");
-  const [homeInput, setHomeInput] = useState(defaultHome);
-  const [homeBase, setHomeBase] = useState(defaultHome);
+  const [homeInput, setHomeInput] = useState(getInitialHome());
+  const [homeBase, setHomeBase] = useState(getInitialHome());
 
   useEffect(() => {
     fetch(
@@ -64,7 +83,7 @@ function App() {
             <div className="hero-meta">
               <span className="meta-pill">Home: {data.home}</span>
               <span className={`meta-pill ${scoreClass(data.dry_score)}`}>
-                Dry Score: {data.dry_score}
+                Conditions Score: {data.dry_score}
               </span>
             </div>
           </div>
@@ -194,23 +213,10 @@ function App() {
           {data.forecast && data.forecast.length > 0 && (
             <div className="forecast-card">
               <div className="section-card-head">
-                <h3>5-Day Climbing Forecast</h3>
+                <h3>5-Day Conditions Forecast</h3>
               </div>
 
-              <div className="forecast-strip">
-                {data.forecast.map((day) => (
-                  <div className="forecast-day" key={day.day}>
-                    <div className="forecast-day-name">{day.day}</div>
-                    <div className={scoreClass(day.score)}>{day.score}</div>
-                    <div className="forecast-temps">
-                      {day.high}° / {day.low}°
-                    </div>
-                    <div className="forecast-precip">
-                      {day.precip}" precip
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ForecastScoreRow forecast={data.forecast} />
             </div>
           )}
 
@@ -239,10 +245,15 @@ function App() {
         </div>
 
         <div className="alternates-section">
-          <h2 className="alternates-title">Ranked Backups</h2>
+          <div className="alternates-header">
+            <h2 className="alternates-title">Ranked Backups</h2>
+            <p className="alternates-note">
+              Top backup options with compact 5-day conditions outlook.
+            </p>
+          </div>
 
           <div className="alternates-grid">
-            {data.alternates.map((alt, index) => (
+            {data.alternates.slice(0, 3).map((alt, index) => (
               <div className="alternate-card" key={alt.area}>
                 <div className="alternate-top">
                   <img
@@ -285,7 +296,10 @@ function App() {
                   </div>
                 </div>
 
-                <p className="alternate-reason">{alt.reason}</p>
+                <div className="backup-forecast-block">
+                  <span className="backup-forecast-label">5-Day Conditions</span>
+                  <ForecastScoreRow forecast={alt.forecast} compact />
+                </div>
 
                 <a
                   className="nav-button small"
