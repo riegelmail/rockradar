@@ -16,8 +16,6 @@ const cragPhotos = {
   "Tieton – The Bend": tietonPhoto,
   "Exit 38 – North Bend": exit38Photo,
   "Leavenworth – Icicle Canyon": leavenworthPhoto,
-
-  // Temporary non-hand fallbacks until you add dedicated local images
   "Beacon Rock": exit38Photo,
   "Smith Rock – Morning Glory Wall": tietonPhoto,
   "Smith Rock – Red Wall": tietonPhoto,
@@ -198,11 +196,7 @@ function App() {
 
         <div className="top-pick-card">
           <div className="crag-header">
-            <img
-              className="crag-photo"
-              src={topPhoto}
-              alt={data.best_area}
-            />
+            <img className="crag-photo" src={topPhoto} alt={data.best_area} />
 
             <div className="crag-header-text">
               <div className="crag-top-row">
@@ -274,7 +268,7 @@ function App() {
           {data.forecast && data.forecast.length > 0 && (
             <div className="forecast-card">
               <div className="section-card-head">
-                <h3>5-Day Conditions Forecast</h3>
+                <h3>5-Day Forecast</h3>
               </div>
 
               <ForecastScoreRow forecast={data.forecast} />
@@ -309,7 +303,7 @@ function App() {
           <div className="alternates-header">
             <h2 className="alternates-title">Ranked Backups</h2>
             <p className="alternates-note">
-              Top backup options with compact 5-day conditions outlook.
+              Top backup options with compact 5-day forecast.
             </p>
           </div>
 
@@ -360,7 +354,7 @@ function App() {
                   <DryingDetails item={alt} compact />
 
                   <div className="backup-forecast-block">
-                    <span className="backup-forecast-label">5-Day Conditions</span>
+                    <span className="backup-forecast-label">5-Day Forecast</span>
                     <ForecastScoreRow forecast={alt.forecast} compact />
                   </div>
 
