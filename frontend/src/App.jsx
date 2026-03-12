@@ -76,6 +76,8 @@ function App() {
     return <div className="container">Loading RockRadar...</div>;
   }
 
+  const heroPhoto = cragPhotos[data.best_area] || fallbackCragPhoto;
+
   return (
     <div className="app-shell">
       <div className="container">
@@ -94,9 +96,9 @@ function App() {
 
           <div className="hero-icon-wrap">
             <img
-              src={handPhoto}
+              src={heroPhoto}
               className="hero-icon"
-              alt="climbing hand on rock"
+              alt={`${data.best_area} preview`}
               style={{ objectFit: "cover" }}
             />
           </div>
