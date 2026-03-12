@@ -45,57 +45,29 @@ DRIVE_FACTORS = {
     "Leavenworth – Icicle Canyon": 1.6,
     "Exit 38 – North Bend": 1.2,
     "Vantage – Frenchman Coulee": 1.45,
+    "Beacon Rock": 1.28,
+    "Mount Erie": 1.28,
+    "Banks Lake": 1.5,
+    "Mazama – Goat Wall": 1.45,
+    "Smith Rock – Main Area": 1.62,
+    "Smith Rock – Trad Walls": 1.62,
+    "Trout Creek": 1.72,
+    "Squamish – Stawamus Chief": 1.38,
+    "Squamish – Murrin Park": 1.38,
+    "Squamish – The Farm": 1.38,
+    "Cheakamus Canyon": 1.42,
 }
 
-FALLBACK_WEATHER = {
-    "Index – River Boulders": {
-        "temperature_2m": 3.0,
-        "wind_speed_10m": 2.0,
-        "precipitation": 0.2,
-        "rain_last_24h": 1.0,
-        "relative_humidity_2m": 95,
-        "dew_point_2m": 1.0,
-    },
-    "Index – Overhung / Hagakure-ish": {
-        "temperature_2m": 3.0,
-        "wind_speed_10m": 2.0,
-        "precipitation": 0.2,
-        "rain_last_24h": 1.0,
-        "relative_humidity_2m": 95,
-        "dew_point_2m": 1.0,
-    },
-    "Tieton – The Bend": {
-        "temperature_2m": 8.0,
-        "wind_speed_10m": 10.0,
-        "precipitation": 0.0,
-        "rain_last_24h": 0.0,
-        "relative_humidity_2m": 50,
-        "dew_point_2m": -1.0,
-    },
-    "Leavenworth – Icicle Canyon": {
-        "temperature_2m": 6.0,
-        "wind_speed_10m": 6.0,
-        "precipitation": 0.0,
-        "rain_last_24h": 0.0,
-        "relative_humidity_2m": 55,
-        "dew_point_2m": -2.0,
-    },
-    "Exit 38 – North Bend": {
-        "temperature_2m": 2.0,
-        "wind_speed_10m": 3.0,
-        "precipitation": 0.3,
-        "rain_last_24h": 1.5,
-        "relative_humidity_2m": 92,
-        "dew_point_2m": 1.0,
-    },
-    "Vantage – Frenchman Coulee": {
-        "temperature_2m": 11.0,
-        "wind_speed_10m": 12.0,
-        "precipitation": 0.0,
-        "rain_last_24h": 0.0,
-        "relative_humidity_2m": 40,
-        "dew_point_2m": -3.0,
-    },
+ROCK_DRYING_MULTIPLIER = {
+    "basalt": 0.75,
+    "granite": 1.1,
+    "volcanic": 0.95,
+}
+
+WET_SENSITIVITY_MULTIPLIER = {
+    "low": 0.75,
+    "medium": 1.0,
+    "high": 1.45,
 }
 
 
@@ -195,10 +167,54 @@ def next_daylight_window(delay_hours):
     return f"{start.strftime('%-I %p')} – {end.strftime('%-I %p')}"
 
 
+def fallback_weather_for_crag(crag):
+    style = crag.get("style", "sport")
+    rock_type = crag.get("rock_type", "granite")
+    wet_sensitive = crag.get("wet_sensitive", "medium")
+
+    if style == "bouldering":
+        temp_c = 6.0
+    elif style == "trad":
+        temp_c = 9.0
+    else:
+        temp_c = 10.0
+
+    humidity = 58
+    dew_c = 1.0
+    wind_kmh = 8.0
+    precip_now = 0.0
+    rain_24h = 0.0
+
+    if wet_sensitive == "high":
+        humidity = 82
+        dew_c = 3.0
+        rain_24h = 0.6
+        precip_now = 0.1
+    elif wet_sensitive == "medium":
+        humidity = 65
+        dew_c = 2.0
+        rain_24h = 0.2
+
+    if rock_type == "basalt":
+        temp_c += 1.0
+        humidity -= 5
+    elif rock_type == "granite":
+        humidity += 2
+
+    return {
+        "temperature_2m": temp_c,
+        "wind_speed_10m": wind_kmh,
+        "precipitation": precip_now,
+        "rain_last_24h": rain_24h,
+        "relative_humidity_2m": max(20, min(98, humidity)),
+        "dew_point_2m": dew_c,
+    }
+
+
 def build_fallback_results(crags):
     results = []
     for crag in crags:
-        fallback = FALLBACK_WEATHER[crag["name"]]
+        fallback = fallback_weather_for_crag(crag)
         current = {
             "temperature_2m": fallback["temperature_2m"],
             "wind_speed_10m": fallback["wind_speed_10m"],
@@ -256,6 +272,68 @@ def get_weather_batch(crags):
         return fallback_results
 
 
+def estimate_drying_hours(
+    crag,
+    rain_24h,
+    rain_now,
+    humidity,
+    dew_spread,
+    wind_mph,
+    temp_f,
+):
+    rock_mult = ROCK_DRYING_MULTIPLIER.get(crag.get("rock_type", "granite"), 1.0)
+    wet_mult = WET_SENSITIVITY_MULTIPLIER.get(crag.get("wet_sensitive", "medium"), 1.0)
+    overhang = float(crag.get("overhang", 0))
+
+    hours = 0.0
+
+    hours += rain_24h * 4.5 * wet_mult * rock_mult
+    hours += rain_now * 10.0 * wet_mult * rock_mult
+
+    if humidity >= 92:
+        hours += 6
+    elif humidity >= 85:
+        hours += 3
+    elif humidity >= 75:
+        hours += 1.5
+    elif humidity <= 45:
+        hours -= 1
+
+    if dew_spread < 3:
+        hours += 5
+    elif dew_spread < 5:
+        hours += 2.5
+    elif dew_spread >= 12:
+        hours -= 1.5
+
+    if wind_mph >= 10:
+        hours -= 1.5
+    elif wind_mph >= 6:
+        hours -= 0.75
+    elif wind_mph <= 2:
+        hours += 0.75
+
+    if temp_f >= 55:
+        hours -= 1.0
+    elif temp_f <= 38:
+        hours += 1.25
+
+    if crag.get("sun_exposure") == "high":
+        hours -= 1.5
+    elif crag.get("sun_exposure") == "low":
+        hours += 1.5
+
+    if overhang >= 0.7:
+        hours -= 2.0
+    elif overhang <= 0.25:
+        hours += 1.5
+
+    if crag.get("style") == "bouldering" and rain_24h > 0.1:
+        hours += 1.5
+
+    return round(max(0, hours), 1)
+
+
 def forecast_score_day(crag, high_c, low_c, precip_sum):
     high_f = c_to_f(high_c)
     low_f = c_to_f(low_c)
@@ -263,11 +341,11 @@ def forecast_score_day(crag, high_c, low_c, precip_sum):
 
     score = 82
 
-    wet_mult = {"low": 0.8, "medium": 1.15, "high": 1.8}.get(
-        crag.get("wet_sensitive", "medium"), 1.15
+    wet_mult = WET_SENSITIVITY_MULTIPLIER.get(
+        crag.get("wet_sensitive", "medium"), 1.0
     )
-    rock_mult = {"basalt": 0.8, "granite": 1.45, "volcanic": 1.1}.get(
-        crag.get("rock_type", ""), 1.0
+    rock_mult = ROCK_DRYING_MULTIPLIER.get(
+        crag.get("rock_type", "granite"), 1.0
     )
 
     score -= precip_sum * 16 * wet_mult * rock_mult
@@ -361,11 +439,11 @@ def score_crag(crag, weather_tuple, home):
 
     score = 82
 
-    wet_mult = {"low": 0.8, "medium": 1.15, "high": 1.8}.get(
-        crag.get("wet_sensitive", "medium"), 1.15
+    wet_mult = WET_SENSITIVITY_MULTIPLIER.get(
+        crag.get("wet_sensitive", "medium"), 1.0
     )
-    rock_mult = {"basalt": 0.8, "granite": 1.45, "volcanic": 1.1}.get(
-        crag.get("rock_type", ""), 1.0
+    rock_mult = ROCK_DRYING_MULTIPLIER.get(
+        crag.get("rock_type", "granite"), 1.0
     )
 
     score -= rain_24h * 10 * wet_mult * rock_mult
@@ -432,14 +510,29 @@ def score_crag(crag, weather_tuple, home):
     if temp_f <= 36 and rain_now > 0:
         score -= 8
 
-    score = max(0, min(100, round(score)))
+    drying_hours = estimate_drying_hours(
+        crag=crag,
+        rain_24h=rain_24h,
+        rain_now=rain_now,
+        humidity=humidity,
+        dew_spread=dew_spread,
+        wind_mph=wind_mph,
+        temp_f=temp_f,
+    )
 
-    delay_hours = rain_24h * 0.3 + rain_now * 2
-    best_window = next_daylight_window(delay_hours)
+    if drying_hours >= 12:
+        score -= 12
+    elif drying_hours >= 6:
+        score -= 7
+    elif drying_hours >= 3:
+        score -= 3
+
+    score = max(0, min(100, round(score)))
+    best_window = next_daylight_window(drying_hours)
 
     reason = (
-        "Scored using recent rain, humidity, dew point spread, temperature, "
-        "sun exposure, overhang, and rock sensitivity."
+        "Scored using recent rain, estimated drying time, humidity, dew point spread, "
+        "temperature, sun exposure, overhang, and rock sensitivity."
     )
 
     freshness_text = f"Conditions updated every {CACHE_TTL_MINUTES} minutes"
@@ -458,8 +551,11 @@ def score_crag(crag, weather_tuple, home):
         "dew_point": dew_f,
         "wind": wind_mph,
         "rain": rain_now,
+        "rain_24h": round(rain_24h, 2),
+        "drying_hours": drying_hours,
         "reason": reason,
         "freshness_text": freshness_text,
+        "weather_source": source,
     }
 
 
@@ -492,6 +588,8 @@ def recommendations(
             "dew_point": 0,
             "rain": 0,
             "wind": 0,
+            "rain_24h": 0,
+            "drying_hours": 0,
             "reason": "Try increasing max drive time or changing style.",
             "freshness_text": f"Conditions updated every {CACHE_TTL_MINUTES} minutes",
             "forecast": [],
@@ -525,7 +623,9 @@ def recommendations(
         "humidity": best["humidity"],
         "dew_point": best["dew_point"],
         "rain": best["rain"],
+        "rain_24h": best["rain_24h"],
         "wind": best["wind"],
+        "drying_hours": best["drying_hours"],
         "reason": best["reason"],
         "rock_type": best["rock_type"],
         "overhang": best["overhang"],

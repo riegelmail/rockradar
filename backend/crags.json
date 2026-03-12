@@ -6,16 +6,18 @@
     "lat": 47.8216,
     "lon": -121.5704,
     "overhang": 0.7,
-    "wet_sensitive": "high"
+    "wet_sensitive": "high",
+    "sun_exposure": "low"
   },
   {
     "name": "Index – Overhung / Hagakure-ish",
     "style": "bouldering",
     "rock_type": "granite",
-    "lat": 47.8230,
+    "lat": 47.823,
     "lon": -121.5666,
     "overhang": 0.9,
-    "wet_sensitive": "high"
+    "wet_sensitive": "high",
+    "sun_exposure": "low"
   },
   {
     "name": "Tieton – The Bend",
@@ -24,7 +26,8 @@
     "lat": 46.642,
     "lon": -120.955,
     "overhang": 0.6,
-    "wet_sensitive": "low"
+    "wet_sensitive": "low",
+    "sun_exposure": "high"
   },
   {
     "name": "Leavenworth – Icicle Canyon",
@@ -33,7 +36,8 @@
     "lat": 47.5952,
     "lon": -120.6615,
     "overhang": 0.3,
-    "wet_sensitive": "medium"
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
   },
   {
     "name": "Exit 38 – North Bend",
@@ -42,7 +46,8 @@
     "lat": 47.4362,
     "lon": -121.4151,
     "overhang": 0.4,
-    "wet_sensitive": "medium"
+    "wet_sensitive": "medium",
+    "sun_exposure": "low"
   },
   {
     "name": "Vantage – Frenchman Coulee",
@@ -51,6 +56,117 @@
     "lat": 46.949,
     "lon": -119.9875,
     "overhang": 0.5,
-    "wet_sensitive": "low"
+    "wet_sensitive": "low",
+    "sun_exposure": "high"
+  },
+  {
+    "name": "Beacon Rock",
+    "style": "trad",
+    "rock_type": "basalt",
+    "lat": 45.6279,
+    "lon": -122.021,
+    "overhang": 0.45,
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
+  },
+  {
+    "name": "Mount Erie",
+    "style": "trad",
+    "rock_type": "granite",
+    "lat": 48.4534,
+    "lon": -122.6291,
+    "overhang": 0.3,
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
+  },
+  {
+    "name": "Banks Lake",
+    "style": "sport",
+    "rock_type": "granite",
+    "lat": 47.8829,
+    "lon": -119.0916,
+    "overhang": 0.35,
+    "wet_sensitive": "low",
+    "sun_exposure": "high"
+  },
+  {
+    "name": "Mazama – Goat Wall",
+    "style": "sport",
+    "rock_type": "granite",
+    "lat": 48.6229,
+    "lon": -120.4487,
+    "overhang": 0.25,
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
+  },
+  {
+    "name": "Smith Rock – Main Area",
+    "style": "sport",
+    "rock_type": "volcanic",
+    "lat": 44.367,
+    "lon": -121.1439,
+    "overhang": 0.45,
+    "wet_sensitive": "low",
+    "sun_exposure": "high"
+  },
+  {
+    "name": "Smith Rock – Trad Walls",
+    "style": "trad",
+    "rock_type": "volcanic",
+    "lat": 44.3636,
+    "lon": -121.1468,
+    "overhang": 0.28,
+    "wet_sensitive": "medium",
+    "sun_exposure": "high"
+  },
+  {
+    "name": "Trout Creek",
+    "style": "trad",
+    "rock_type": "volcanic",
+    "lat": 44.8005,
+    "lon": -121.1086,
+    "overhang": 0.18,
+    "wet_sensitive": "medium",
+    "sun_exposure": "high"
+  },
+  {
+    "name": "Squamish – Stawamus Chief",
+    "style": "trad",
+    "rock_type": "granite",
+    "lat": 49.6837,
+    "lon": -123.1421,
+    "overhang": 0.35,
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
+  },
+  {
+    "name": "Squamish – Murrin Park",
+    "style": "sport",
+    "rock_type": "granite",
+    "lat": 49.6446,
+    "lon": -123.2052,
+    "overhang": 0.45,
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
+  },
+  {
+    "name": "Squamish – The Farm",
+    "style": "bouldering",
+    "rock_type": "granite",
+    "lat": 49.6941,
+    "lon": -123.1268,
+    "overhang": 0.6,
+    "wet_sensitive": "high",
+    "sun_exposure": "low"
+  },
+  {
+    "name": "Cheakamus Canyon",
+    "style": "sport",
+    "rock_type": "granite",
+    "lat": 49.9066,
+    "lon": -123.1613,
+    "overhang": 0.55,
+    "wet_sensitive": "medium",
+    "sun_exposure": "medium"
   }
 ]
