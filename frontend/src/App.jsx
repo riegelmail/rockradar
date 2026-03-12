@@ -1,20 +1,24 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
+import handPhoto from "./assets/crags/hand.jpg";
+import exit38Photo from "./assets/crags/exit-38-north-bend.jpg";
+import indexHagakurePhoto from "./assets/crags/index-hagakure.jpg";
+import indexRiverBouldersPhoto from "./assets/crags/index-river-boulders.jpg";
+import leavenworthPhoto from "./assets/crags/leavenworth-icicle-canyon.jpg";
+import tietonPhoto from "./assets/crags/tieton-the-bend.jpg";
+import vantagePhoto from "./assets/crags/vantage-frenchman-coulee.jpg";
+
 const cragPhotos = {
-  "Index – River Boulders":
-    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
-  "Index – Overhung / Hagakure-ish":
-    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee",
-  "Vantage – Frenchman Coulee":
-    "https://images.unsplash.com/photo-1522163182402-834f871fd851",
-  "Tieton – The Bend":
-    "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b",
-  "Exit 38 – North Bend":
-    "https://images.unsplash.com/photo-1441974231531-c6227db76b6e",
-  "Leavenworth – Icicle Canyon":
-    "https://images.unsplash.com/photo-1506744038136-46273834b3fb",
+  "Index – River Boulders": indexRiverBouldersPhoto,
+  "Index – Overhung / Hagakure-ish": indexHagakurePhoto,
+  "Vantage – Frenchman Coulee": vantagePhoto,
+  "Tieton – The Bend": tietonPhoto,
+  "Exit 38 – North Bend": exit38Photo,
+  "Leavenworth – Icicle Canyon": leavenworthPhoto,
 };
+
+const fallbackCragPhoto = handPhoto;
 
 function getMapLink(area) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
@@ -90,9 +94,9 @@ function App() {
 
           <div className="hero-icon-wrap">
             <img
-              src="https://images.unsplash.com/photo-1519681393784-d120267933ba"
+              src={handPhoto}
               className="hero-icon"
-              alt="climbing hold"
+              alt="climbing hand on rock"
               style={{ objectFit: "cover" }}
             />
           </div>
@@ -117,7 +121,7 @@ function App() {
               <label>Max drive time</label>
               <select
                 value={maxHours}
-                onChange={(e) => setMaxHours(e.target.value)}
+                onChange={(e) => setMaxHours(Number(e.target.value))}
               >
                 <option value="1">1 hour</option>
                 <option value="2">2 hours</option>
@@ -145,10 +149,7 @@ function App() {
           <div className="crag-header">
             <img
               className="crag-photo"
-              src={
-                cragPhotos[data.best_area] ||
-                "https://images.unsplash.com/photo-1522163182402-834f871fd851"
-              }
+              src={cragPhotos[data.best_area] || fallbackCragPhoto}
               alt={data.best_area}
             />
 
@@ -265,10 +266,7 @@ function App() {
                 <div className="alternate-top">
                   <img
                     className="alternate-photo"
-                    src={
-                      cragPhotos[alt.area] ||
-                      "https://images.unsplash.com/photo-1522163182402-834f871fd851"
-                    }
+                    src={cragPhotos[alt.area] || fallbackCragPhoto}
                     alt={alt.area}
                   />
 
