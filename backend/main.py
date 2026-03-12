@@ -313,8 +313,6 @@ def estimate_drying_time_hours(crag, rain_24h, rain_now, humidity, dew_spread, t
 def estimated_dry_text(hours):
     if hours <= 0.5:
         return "Now"
-    if hours <= 3:
-        return f"{round(hours)} hrs"
     if hours <= 12:
         return f"{round(hours)} hrs"
     if hours <= 36:
@@ -323,18 +321,29 @@ def estimated_dry_text(hours):
 
 
 def drying_confidence_label(rain_24h, rain_now, humidity, dew_spread, source):
+    # Confidence here means confidence in the drying/readiness estimate.
+    # If it is actively raining, confidence should be High because we know it is wet now.
+    if rain_now > 0.05:
+        return "High"
+
     score = 100
 
     if source != "live":
         score -= 25
-    if rain_now > 0.1:
-        score -= 18
-    if rain_24h > 0.5:
-        score -= 10
-    if humidity > 90:
-        score -= 10
+    if rain_24h > 1.0:
+        score -= 8
+    elif rain_24h > 0.25:
+        score -= 4
+
+    if humidity > 92:
+        score -= 12
+    elif humidity > 85:
+        score -= 8
+
     if dew_spread < 4:
         score -= 12
+    elif dew_spread < 7:
+        score -= 6
 
     if score >= 78:
         return "High"
