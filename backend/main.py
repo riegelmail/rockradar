@@ -321,8 +321,6 @@ def estimated_dry_text(hours):
 
 
 def drying_confidence_label(rain_24h, rain_now, humidity, dew_spread, source):
-    # Confidence here means confidence in the drying/readiness estimate.
-    # If it is actively raining, confidence should be High because we know it is wet now.
     if rain_now > 0.05:
         return "High"
 
@@ -330,20 +328,12 @@ def drying_confidence_label(rain_24h, rain_now, humidity, dew_spread, source):
 
     if source != "live":
         score -= 25
-    if rain_24h > 1.0:
-        score -= 8
-    elif rain_24h > 0.25:
-        score -= 4
-
-    if humidity > 92:
-        score -= 12
-    elif humidity > 85:
-        score -= 8
-
+    if rain_24h > 0.5:
+        score -= 10
+    if humidity > 90:
+        score -= 10
     if dew_spread < 4:
         score -= 12
-    elif dew_spread < 7:
-        score -= 6
 
     if score >= 78:
         return "High"
@@ -480,6 +470,41 @@ def forecast_score_day(crag, high_c, low_c, precip_sum):
     return score
 
 
+def build_fallback_forecast(crag):
+    fallback = FALLBACK_WEATHER.get(
+        crag["name"],
+        {
+            "temperature_2m": 7.0,
+            "precipitation": 0.0,
+            "rain_last_24h": 0.0,
+        },
+    )
+
+    base_high_c = fallback["temperature_2m"] + 3
+    base_low_c = fallback["temperature_2m"] - 3
+    today_precip = fallback.get("precipitation", 0.0) + (fallback.get("rain_last_24h", 0.0) * 0.2)
+
+    forecast = []
+    day_names = ["Today", "Fri", "Sat", "Sun", "Mon"]
+
+    for i, day_name in enumerate(day_names):
+        precip = max(0.0, today_precip - (i * 0.15))
+        score = forecast_score_day(
+            crag,
+            base_high_c + (i * 0.3),
+            base_low_c + (i * 0.2),
+            precip,
+        )
+        forecast.append(
+            {
+                "day": day_name,
+                "score": score,
+            }
+        )
+
+    return forecast
+
+
 def get_crag_forecast(crag):
     cache_key = crag["name"]
     now = datetime.now(timezone.utc)
@@ -522,7 +547,9 @@ def get_crag_forecast(crag):
         return forecast
 
     except Exception:
-        return []
+        fallback_forecast = build_fallback_forecast(crag)
+        FORECAST_CACHE[cache_key] = {"timestamp": now, "data": fallback_forecast}
+        return fallback_forecast
 
 
 def score_crag(crag, weather_tuple, home):
