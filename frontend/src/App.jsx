@@ -33,7 +33,27 @@ const cragPhotos = {
   "Squamish – Grand Wall Boulders": squamishGrandWallBouldersPhoto,
 };
 
-const fallbackCragPhoto = handPhoto;
+const fallbackCragPhoto = tietonPhoto;
+
+function normalizeAreaKey(value) {
+  return (value || "")
+    .normalize("NFKC")
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getCragPhoto(area) {
+  if (cragPhotos[area]) return cragPhotos[area];
+
+  const normalizedTarget = normalizeAreaKey(area);
+  const matchedKey = Object.keys(cragPhotos).find(
+    (key) => normalizeAreaKey(key) === normalizedTarget
+  );
+
+  return matchedKey ? cragPhotos[matchedKey] : fallbackCragPhoto;
+}
 
 function getMapLink(area) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
@@ -191,7 +211,7 @@ function App() {
           <div className="crag-header">
             <img
               className="crag-photo"
-              src={cragPhotos[data.best_area] || fallbackCragPhoto}
+              src={getCragPhoto(data.best_area)}
               alt={data.best_area}
             />
 
@@ -316,7 +336,7 @@ function App() {
           <div className="alternates-header">
             <h2 className="alternates-title">Ranked Backups</h2>
             <p className="alternates-note">
-              Backup options with a simple 5-day outlook.
+              Backup options with drying estimate and 5-day outlook.
             </p>
           </div>
 
@@ -326,7 +346,7 @@ function App() {
                 <div className="alternate-top">
                   <img
                     className="alternate-photo"
-                    src={cragPhotos[alt.area] || fallbackCragPhoto}
+                    src={getCragPhoto(alt.area)}
                     alt={alt.area}
                   />
 
@@ -357,7 +377,9 @@ function App() {
 
                   <div className="mini-stat">
                     <span>Confidence</span>
-                    <strong>{alt.drying_confidence || "Low"}</strong>
+                    <strong className={confidenceClass(alt.drying_confidence)}>
+                      {alt.drying_confidence || "Low"}
+                    </strong>
                   </div>
                 </div>
 
