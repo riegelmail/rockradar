@@ -895,4 +895,11 @@ def recommendations(
         "freshness_text": best["freshness_text"],
         "forecast": best["forecast"],
         "alternates": alternates,
-    }
+    }@app.get("/api/crags")
+def get_crags():
+    return [
+        {"name": "Tieton – The Bend", "lat": 46.74, "lon": -120.95},
+        {"name": "Vantage – Frenchman Coulee", "lat": 46.95, "lon": -119.99},
+        {"name": "Leavenworth – Icicle Canyon", "lat": 47.56, "lon": -120.66},
+        {"name": "Exit 38 – North Bend", "lat": 47.45, "lon": -121.66}
+    ]
