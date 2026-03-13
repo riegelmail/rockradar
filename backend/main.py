@@ -360,12 +360,82 @@ def last_rain_text(rain_24h, rain_now):
     return "Heavy rain in last 24h"
 
 
-def forecast_label_from_score(score):
-    if score >= 75:
-        return "Dry"
-    if score >= 45:
+def forecast_label_from_wetness(wetness):
+    if wetness >= 18:
+        return "Wet"
+    if wetness >= 7:
         return "Drying"
-    return "Wet"
+    return "Dry"
+
+
+def rock_terrain_wetness_factor(crag):
+    factor = 1.0
+    factor *= {"basalt": 0.75, "granite": 1.2, "volcanic": 1.0}.get(
+        crag.get("rock_type", ""), 1.0
+    )
+    factor *= {"low": 0.8, "medium": 1.1, "high": 1.3}.get(
+        crag.get("wet_sensitive", "medium"), 1.1
+    )
+
+    overhang = crag.get("overhang", 0)
+    if overhang >= 0.7:
+        factor *= 0.72
+    elif overhang >= 0.5:
+        factor *= 0.88
+    elif overhang <= 0.3:
+        factor *= 1.18
+
+    return factor
+
+
+def drying_power_score(crag, avg_temp_f, humidity, dew_spread, wind_mph):
+    power = 0.0
+
+    sun = crag.get("sun_exposure", "medium")
+    if sun == "high":
+        power += 3.0
+    elif sun == "medium":
+        power += 1.2
+    else:
+        power -= 1.3
+
+    if avg_temp_f >= 80:
+        power += 3.0
+    elif avg_temp_f >= 68:
+        power += 2.4
+    elif avg_temp_f >= 56:
+        power += 1.6
+    elif avg_temp_f >= 45:
+        power += 0.8
+    elif avg_temp_f < 38:
+        power -= 2.0
+
+    if humidity <= 45:
+        power += 3.0
+    elif humidity <= 60:
+        power += 2.0
+    elif humidity <= 75:
+        power += 0.5
+    elif humidity <= 88:
+        power -= 1.8
+    else:
+        power -= 3.6
+
+    if dew_spread >= 12:
+        power += 3.0
+    elif dew_spread >= 8:
+        power += 2.0
+    elif dew_spread >= 5:
+        power += 0.5
+    else:
+        power -= 2.8
+
+    if 6 <= wind_mph <= 18:
+        power += 1.0
+    elif wind_mph > 22:
+        power -= 0.5
+
+    return power
 
 
 def build_fallback_results(crags):
@@ -439,81 +509,43 @@ def get_weather_batch(crags):
         return fallback_results
 
 
-def forecast_score_day(crag, high_c, low_c, precip_sum):
-    high_f = c_to_f(high_c)
-    low_f = c_to_f(low_c)
-    avg_f = round((high_f + low_f) / 2, 1)
-
-    score = 82
-
-    wet_mult = {"low": 0.8, "medium": 1.15, "high": 1.8}.get(
-        crag.get("wet_sensitive", "medium"), 1.15
-    )
-    rock_mult = {"basalt": 0.8, "granite": 1.45, "volcanic": 1.1}.get(
-        crag.get("rock_type", ""), 1.0
-    )
-
-    score -= precip_sum * 16 * wet_mult * rock_mult
-
-    if crag["style"] == "bouldering":
-        if 38 <= avg_f <= 52:
-            score += 7
-        elif 53 <= avg_f <= 60:
-            score += 2
-        elif avg_f > 70:
-            score -= 8
-        elif avg_f < 28:
-            score -= 4
-    else:
-        if 45 <= avg_f <= 68:
-            score += 3
-        elif avg_f > 82:
-            score -= 4
-
-    if crag.get("sun_exposure") == "high":
-        score += 2
-    elif crag.get("sun_exposure") == "low":
-        score -= 2
-
-    if crag.get("overhang", 0) >= 0.7 and precip_sum > 0:
-        score += 4
-    elif crag.get("overhang", 0) < 0.35 and precip_sum > 0:
-        score -= 4
-
-    score = max(0, min(100, round(score)))
-    return score
-
-
 def build_fallback_forecast(crag):
     fallback = FALLBACK_WEATHER.get(
         crag["name"],
         {
             "temperature_2m": 7.0,
+            "wind_speed_10m": 5.0,
+            "relative_humidity_2m": 60,
+            "dew_point_2m": 0.0,
             "precipitation": 0.0,
             "rain_last_24h": 0.0,
         },
     )
 
-    base_high_c = fallback["temperature_2m"] + 3
-    base_low_c = fallback["temperature_2m"] - 3
-    today_precip = fallback.get("precipitation", 0.0) + (fallback.get("rain_last_24h", 0.0) * 0.2)
-
     forecast = []
+    wetness = fallback.get("rain_last_24h", 0.0) * 18 * rock_terrain_wetness_factor(crag)
     day_names = ["Today", "Fri", "Sat", "Sun", "Mon"]
 
     for i, day_name in enumerate(day_names):
-        precip = max(0.0, today_precip - (i * 0.15))
-        score = forecast_score_day(
-            crag,
-            base_high_c + (i * 0.3),
-            base_low_c + (i * 0.2),
-            precip,
-        )
+        avg_temp_f = c_to_f(fallback["temperature_2m"] + (0.5 * i))
+        humidity = max(35, min(95, fallback["relative_humidity_2m"] - (3 * i)))
+        dew_f = c_to_f(fallback["dew_point_2m"])
+        dew_spread = avg_temp_f - dew_f
+        wind_mph = kmh_to_mph(fallback["wind_speed_10m"])
+        precip = max(0.0, fallback.get("precipitation", 0.0) - (0.05 * i))
+
+        terrain_factor = rock_terrain_wetness_factor(crag)
+        drying_power = drying_power_score(crag, avg_temp_f, humidity, dew_spread, wind_mph)
+
+        wetness = max(0.0, wetness * 0.68 + precip * 18 * terrain_factor - drying_power * 2.2)
+        label = forecast_label_from_wetness(wetness)
+
         forecast.append(
             {
                 "day": day_name,
-                "score": score,
-                "label": forecast_label_from_score(score),
+                "score": max(0, min(100, round(100 - wetness * 4))),
+                "label": label,
+                "wetness": round(wetness, 1),
             }
         )
 
@@ -533,7 +565,8 @@ def get_crag_forecast(crag):
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={crag['lat']}"
         f"&longitude={crag['lon']}"
-        "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum"
+        "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,"
+        "relative_humidity_2m_mean,dew_point_2m_mean,wind_speed_10m_max"
         "&forecast_days=5"
         "&timezone=auto"
     )
@@ -544,18 +577,36 @@ def get_crag_forecast(crag):
         data = r.json()
 
         forecast = []
+        terrain_factor = rock_terrain_wetness_factor(crag)
+        wetness = 0.0
+
         for i, day in enumerate(data["daily"]["time"]):
-            score = forecast_score_day(
-                crag,
-                data["daily"]["temperature_2m_max"][i],
-                data["daily"]["temperature_2m_min"][i],
-                data["daily"]["precipitation_sum"][i],
+            high_f = c_to_f(data["daily"]["temperature_2m_max"][i])
+            low_f = c_to_f(data["daily"]["temperature_2m_min"][i])
+            avg_temp_f = round((high_f + low_f) / 2, 1)
+
+            precip = data["daily"]["precipitation_sum"][i]
+            humidity = data["daily"]["relative_humidity_2m_mean"][i]
+            dew_f = c_to_f(data["daily"]["dew_point_2m_mean"][i])
+            dew_spread = avg_temp_f - dew_f
+            wind_mph = kmh_to_mph(data["daily"]["wind_speed_10m_max"][i])
+
+            drying_power = drying_power_score(crag, avg_temp_f, humidity, dew_spread, wind_mph)
+
+            wetness = max(
+                0.0,
+                wetness * 0.68 + precip * 18 * terrain_factor - drying_power * 2.2
             )
+
+            label = forecast_label_from_wetness(wetness)
+            score = max(0, min(100, round(100 - wetness * 4)))
+
             forecast.append(
                 {
                     "day": datetime.fromisoformat(day).strftime("%a"),
                     "score": score,
-                    "label": forecast_label_from_score(score),
+                    "label": label,
+                    "wetness": round(wetness, 1),
                 }
             )
 
@@ -588,18 +639,18 @@ def build_condition_signal(score, rain_now, rain_24h, estimated_dry_hours, forec
 
     if score >= 85 and estimated_dry_hours <= 2:
         level = "Good"
-        summary = "This looks worth the drive. Conditions are favorable and the rock should be ready now or very soon."
+        summary = "Worth the drive. Conditions look favorable and the rock should be ready now or very soon."
     elif score >= 60 or drying_days >= 2 or dry_days >= 2:
         level = "Mixed"
-        summary = "This is a maybe. Some terrain could go, but you are still depending on drying progress and timing."
+        summary = "Proceed with caution. Some terrain could go, but you are still depending on drying progress and timing."
     else:
         level = "Poor"
-        summary = "This looks like a weak option right now. There are probably better places to spend the day."
+        summary = "Probably skip it. This looks like a weak option right now unless you are intentionally gambling."
 
     if rain_24h <= 0.05:
         reasons.append("There has been little to no recent rain.")
     elif rain_24h <= 0.75:
-        reasons.append("Recent rain is still part of the story, but not an automatic deal-breaker.")
+        reasons.append("Recent rain still matters, but it is not an automatic deal-breaker.")
     else:
         reasons.append("Recent rain load is significant and likely still affecting the rock.")
 
@@ -762,7 +813,7 @@ def score_crag(crag, weather_tuple, home):
         "dew_point": dew_f,
         "wind": wind_mph,
         "rain": rain_now,
-        "last_rain_event": last_rain_event,
+        "last_rain_event": last_rain_text(rain_24h, rain_now),
         "estimated_dry": estimated_dry,
         "estimated_dry_hours": estimated_dry_hours,
         "drying_confidence": drying_confidence,
@@ -817,7 +868,6 @@ def recommendations(
 
     filtered.sort(key=lambda x: x["dry_score"], reverse=True)
     best = filtered[0]
-
     alternates = filtered[1:4]
 
     return {
