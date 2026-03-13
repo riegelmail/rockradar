@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 import handPhoto from "./assets/crags/hand.jpg";
@@ -33,26 +33,107 @@ const cragPhotos = {
   "Squamish – Grand Wall Boulders": squamishGrandWallBouldersPhoto,
 };
 
-const fallbackCragPhoto = tietonPhoto;
+const fallbackCragPhoto = handPhoto;
 
 function normalizeAreaKey(value) {
   return (value || "")
     .normalize("NFKC")
+    .replace(/â€“|â€”/g, "-")
     .replace(/[–—]/g, "-")
+    .replace(/[^\w\s/-]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
 }
 
+const photoAliasEntries = [
+  ["index river boulders", indexRiverBouldersPhoto],
+  ["index overhung / hagakure-ish", indexHagakurePhoto],
+  ["index hagakure", indexHagakurePhoto],
+  ["hagakure", indexHagakurePhoto],
+
+  ["vantage frenchman coulee", vantagePhoto],
+  ["frenchman coulee", vantagePhoto],
+  ["vantage", vantagePhoto],
+
+  ["tieton the bend", tietonPhoto],
+  ["the bend", tietonPhoto],
+  ["tieton", tietonPhoto],
+
+  ["exit 38 north bend", exit38Photo],
+  ["north bend", exit38Photo],
+  ["exit 38", exit38Photo],
+
+  ["leavenworth icicle canyon", leavenworthPhoto],
+  ["icicle canyon", leavenworthPhoto],
+  ["leavenworth", leavenworthPhoto],
+
+  ["beacon rock", beaconRockPhoto],
+
+  ["smith rock morning glory wall", smithMorningGloryPhoto],
+  ["morning glory wall", smithMorningGloryPhoto],
+
+  ["smith rock red wall", smithRedWallPhoto],
+  ["red wall", smithRedWallPhoto],
+
+  ["smith rock bouldering", smithBoulderingPhoto],
+  ["smith bouldering", smithBoulderingPhoto],
+  ["bouldering", smithBoulderingPhoto],
+
+  ["squamish grand wall / apron", squamishGrandWallApronPhoto],
+  ["grand wall apron", squamishGrandWallApronPhoto],
+  ["apron", squamishGrandWallApronPhoto],
+
+  ["squamish chek / smoke bluffs sport", squamishChekSmokeBluffsPhoto],
+  ["smoke bluffs sport", squamishChekSmokeBluffsPhoto],
+  ["smoke bluffs", squamishChekSmokeBluffsPhoto],
+  ["chek", squamishChekSmokeBluffsPhoto],
+
+  ["squamish grand wall boulders", squamishGrandWallBouldersPhoto],
+  ["grand wall boulders", squamishGrandWallBouldersPhoto],
+];
+
+const photoAliases = Object.fromEntries(
+  photoAliasEntries.map(([key, photo]) => [normalizeAreaKey(key), photo])
+);
+
 function getCragPhoto(area) {
+  if (!area) return fallbackCragPhoto;
+
   if (cragPhotos[area]) return cragPhotos[area];
 
   const normalizedTarget = normalizeAreaKey(area);
-  const matchedKey = Object.keys(cragPhotos).find(
+
+  if (photoAliases[normalizedTarget]) {
+    return photoAliases[normalizedTarget];
+  }
+
+  const exactKeyMatch = Object.keys(cragPhotos).find(
     (key) => normalizeAreaKey(key) === normalizedTarget
   );
+  if (exactKeyMatch) {
+    return cragPhotos[exactKeyMatch];
+  }
 
-  return matchedKey ? cragPhotos[matchedKey] : fallbackCragPhoto;
+  const aliasContainsMatch = Object.entries(photoAliases).find(([alias]) =>
+    normalizedTarget.includes(alias) || alias.includes(normalizedTarget)
+  );
+  if (aliasContainsMatch) {
+    return aliasContainsMatch[1];
+  }
+
+  const keyContainsMatch = Object.keys(cragPhotos).find((key) => {
+    const normalizedKey = normalizeAreaKey(key);
+    return (
+      normalizedTarget.includes(normalizedKey) ||
+      normalizedKey.includes(normalizedTarget)
+    );
+  });
+  if (keyContainsMatch) {
+    return cragPhotos[keyContainsMatch];
+  }
+
+  return fallbackCragPhoto;
 }
 
 function getMapLink(area) {
@@ -130,6 +211,8 @@ function App() {
     localStorage.setItem("rockradarHome", homeInput);
     setHomeBase(homeInput);
   }
+
+  const alternates = useMemo(() => data?.alternates?.slice(0, 3) || [], [data]);
 
   if (!data) {
     return <div className="container">Loading RockRadar...</div>;
@@ -341,7 +424,7 @@ function App() {
           </div>
 
           <div className="alternates-grid">
-            {data.alternates.slice(0, 3).map((alt, index) => (
+            {alternates.map((alt, index) => (
               <div className="alternate-card" key={alt.area}>
                 <div className="alternate-top">
                   <img
