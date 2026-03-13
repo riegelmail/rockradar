@@ -46,92 +46,16 @@ function normalizeAreaKey(value) {
     .toLowerCase();
 }
 
-const photoAliasEntries = [
-  ["index river boulders", indexRiverBouldersPhoto],
-  ["index overhung / hagakure-ish", indexHagakurePhoto],
-  ["index hagakure", indexHagakurePhoto],
-  ["hagakure", indexHagakurePhoto],
-
-  ["vantage frenchman coulee", vantagePhoto],
-  ["frenchman coulee", vantagePhoto],
-  ["vantage", vantagePhoto],
-
-  ["tieton the bend", tietonPhoto],
-  ["the bend", tietonPhoto],
-  ["tieton", tietonPhoto],
-
-  ["exit 38 north bend", exit38Photo],
-  ["north bend", exit38Photo],
-  ["exit 38", exit38Photo],
-
-  ["leavenworth icicle canyon", leavenworthPhoto],
-  ["icicle canyon", leavenworthPhoto],
-  ["leavenworth", leavenworthPhoto],
-
-  ["beacon rock", beaconRockPhoto],
-
-  ["smith rock morning glory wall", smithMorningGloryPhoto],
-  ["morning glory wall", smithMorningGloryPhoto],
-
-  ["smith rock red wall", smithRedWallPhoto],
-  ["red wall", smithRedWallPhoto],
-
-  ["smith rock bouldering", smithBoulderingPhoto],
-  ["smith bouldering", smithBoulderingPhoto],
-  ["bouldering", smithBoulderingPhoto],
-
-  ["squamish grand wall / apron", squamishGrandWallApronPhoto],
-  ["grand wall apron", squamishGrandWallApronPhoto],
-  ["apron", squamishGrandWallApronPhoto],
-
-  ["squamish chek / smoke bluffs sport", squamishChekSmokeBluffsPhoto],
-  ["smoke bluffs sport", squamishChekSmokeBluffsPhoto],
-  ["smoke bluffs", squamishChekSmokeBluffsPhoto],
-  ["chek", squamishChekSmokeBluffsPhoto],
-
-  ["squamish grand wall boulders", squamishGrandWallBouldersPhoto],
-  ["grand wall boulders", squamishGrandWallBouldersPhoto],
-];
-
-const photoAliases = Object.fromEntries(
-  photoAliasEntries.map(([key, photo]) => [normalizeAreaKey(key), photo])
-);
-
 function getCragPhoto(area) {
   if (!area) return fallbackCragPhoto;
 
-  if (cragPhotos[area]) return cragPhotos[area];
-
   const normalizedTarget = normalizeAreaKey(area);
 
-  if (photoAliases[normalizedTarget]) {
-    return photoAliases[normalizedTarget];
-  }
-
-  const exactKeyMatch = Object.keys(cragPhotos).find(
-    (key) => normalizeAreaKey(key) === normalizedTarget
+  const match = Object.entries(cragPhotos).find(
+    ([key]) => normalizeAreaKey(key) === normalizedTarget
   );
-  if (exactKeyMatch) {
-    return cragPhotos[exactKeyMatch];
-  }
 
-  const aliasContainsMatch = Object.entries(photoAliases).find(([alias]) =>
-    normalizedTarget.includes(alias) || alias.includes(normalizedTarget)
-  );
-  if (aliasContainsMatch) {
-    return aliasContainsMatch[1];
-  }
-
-  const keyContainsMatch = Object.keys(cragPhotos).find((key) => {
-    const normalizedKey = normalizeAreaKey(key);
-    return (
-      normalizedTarget.includes(normalizedKey) ||
-      normalizedKey.includes(normalizedTarget)
-    );
-  });
-  if (keyContainsMatch) {
-    return cragPhotos[keyContainsMatch];
-  }
+  if (match) return match[1];
 
   return fallbackCragPhoto;
 }
