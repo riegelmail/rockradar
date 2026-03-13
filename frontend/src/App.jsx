@@ -16,16 +16,16 @@ const cragPhotos = {
   "Tieton – The Bend": tietonPhoto,
   "Exit 38 – North Bend": exit38Photo,
   "Leavenworth – Icicle Canyon": leavenworthPhoto,
-  "Beacon Rock": exit38Photo,
-  "Smith Rock – Morning Glory Wall": tietonPhoto,
-  "Smith Rock – Red Wall": tietonPhoto,
-  "Smith Rock – Bouldering": tietonPhoto,
-  "Squamish – Grand Wall / Apron": leavenworthPhoto,
-  "Squamish – Chek / Smoke Bluffs Sport": leavenworthPhoto,
-  "Squamish – Grand Wall Boulders": indexRiverBouldersPhoto,
+  "Beacon Rock": handPhoto,
+  "Smith Rock – Morning Glory Wall": handPhoto,
+  "Smith Rock – Red Wall": handPhoto,
+  "Smith Rock – Bouldering": handPhoto,
+  "Squamish – Grand Wall / Apron": handPhoto,
+  "Squamish – Chek / Smoke Bluffs Sport": handPhoto,
+  "Squamish – Grand Wall Boulders": handPhoto,
 };
 
-const fallbackCragPhoto = vantagePhoto;
+const fallbackCragPhoto = handPhoto;
 
 function getMapLink(area) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
@@ -44,53 +44,37 @@ function confidenceClass(confidence) {
   return "score-pill score-red";
 }
 
+function outlookLabel(score) {
+  if (score >= 75) return "Dry";
+  if (score >= 45) return "Drying";
+  return "Wet";
+}
+
+function outlookClass(label) {
+  if (label === "Dry") return "score-pill score-green";
+  if (label === "Drying") return "score-pill score-yellow";
+  return "score-pill score-red";
+}
+
 function getInitialHome() {
   if (typeof window === "undefined") return "Mirrormont, WA";
   return localStorage.getItem("rockradarHome") || "Mirrormont, WA";
 }
 
-function ForecastScoreRow({ forecast, compact = false }) {
+function OutlookRow({ forecast, compact = false }) {
   if (!forecast || forecast.length === 0) return null;
 
   return (
     <div className={`forecast-score-row ${compact ? "compact" : ""}`}>
-      {forecast.map((day) => (
-        <div className="forecast-score-item" key={day.day}>
-          <span className="forecast-score-day">{day.day}</span>
-          <span className={scoreClass(day.score)}>{day.score}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DryingDetails({ item, compact = false }) {
-  if (!item) return null;
-
-  return (
-    <div className={`conditions-card ${compact ? "compact-drying-card" : ""}`}>
-      <div className="section-card-head">
-        <h3>{compact ? "Drying" : "Drying & Confidence"}</h3>
-      </div>
-
-      <div className="conditions-grid">
-        <div className="condition-pill">
-          <span>Last rain</span>
-          <strong>{item.last_rain_event || "Unknown"}</strong>
-        </div>
-
-        <div className="condition-pill">
-          <span>Estimated dry</span>
-          <strong>{item.estimated_dry || "Unknown"}</strong>
-        </div>
-
-        <div className="condition-pill">
-          <span>Confidence</span>
-          <strong className={confidenceClass(item.drying_confidence || "Low")}>
-            {item.drying_confidence || "Low"}
-          </strong>
-        </div>
-      </div>
+      {forecast.map((day) => {
+        const label = day.label || outlookLabel(day.score);
+        return (
+          <div className="forecast-score-item" key={day.day}>
+            <span className="forecast-score-day">{day.day}</span>
+            <span className={outlookClass(label)}>{label}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -119,8 +103,6 @@ function App() {
   if (!data) {
     return <div className="container">Loading RockRadar...</div>;
   }
-
-  const topPhoto = cragPhotos[data.best_area] || fallbackCragPhoto;
 
   return (
     <div className="app-shell">
@@ -176,6 +158,7 @@ function App() {
                 <option value="5">5 hours</option>
                 <option value="6">6 hours</option>
                 <option value="8">8 hours</option>
+                <option value="10">10 hours</option>
               </select>
             </div>
 
@@ -196,7 +179,11 @@ function App() {
 
         <div className="top-pick-card">
           <div className="crag-header">
-            <img className="crag-photo" src={topPhoto} alt={data.best_area} />
+            <img
+              className="crag-photo"
+              src={cragPhotos[data.best_area] || fallbackCragPhoto}
+              alt={data.best_area}
+            />
 
             <div className="crag-header-text">
               <div className="crag-top-row">
@@ -263,15 +250,38 @@ function App() {
             </div>
           </div>
 
-          <DryingDetails item={data} />
+          <div className="conditions-card">
+            <div className="section-card-head">
+              <h3>Drying</h3>
+            </div>
+
+            <div className="conditions-grid">
+              <div className="condition-pill">
+                <span>Last rain</span>
+                <strong>{data.last_rain_event || "n/a"}</strong>
+              </div>
+
+              <div className="condition-pill">
+                <span>Estimated dry</span>
+                <strong>{data.estimated_dry || "n/a"}</strong>
+              </div>
+
+              <div className="condition-pill">
+                <span>Confidence</span>
+                <strong className={confidenceClass(data.drying_confidence)}>
+                  {data.drying_confidence || "Low"}
+                </strong>
+              </div>
+            </div>
+          </div>
 
           {data.forecast && data.forecast.length > 0 && (
             <div className="forecast-card">
               <div className="section-card-head">
-                <h3>5-Day Forecast</h3>
+                <h3>5-Day Outlook</h3>
               </div>
 
-              <ForecastScoreRow forecast={data.forecast} />
+              <OutlookRow forecast={data.forecast} />
             </div>
           )}
 
@@ -303,72 +313,83 @@ function App() {
           <div className="alternates-header">
             <h2 className="alternates-title">Ranked Backups</h2>
             <p className="alternates-note">
-              Top backup options with compact 5-day forecast.
+              Backup options with drying estimate and 5-day outlook.
             </p>
           </div>
 
           <div className="alternates-grid">
-            {data.alternates.slice(0, 3).map((alt, index) => {
-              const altPhoto = cragPhotos[alt.area] || fallbackCragPhoto;
+            {data.alternates.slice(0, 3).map((alt, index) => (
+              <div className="alternate-card" key={alt.area}>
+                <div className="alternate-top">
+                  <img
+                    className="alternate-photo"
+                    src={cragPhotos[alt.area] || fallbackCragPhoto}
+                    alt={alt.area}
+                  />
 
-              return (
-                <div className="alternate-card" key={alt.area}>
-                  <div className="alternate-top">
-                    <img
-                      className="alternate-photo"
-                      src={altPhoto}
-                      alt={alt.area}
-                    />
+                  <div className="alternate-header-text">
+                    <div className="crag-top-row">
+                      <div className="rank-pill">#{index + 2}</div>
+                      <div className={scoreClass(alt.dry_score)}>{alt.dry_score}</div>
+                    </div>
 
-                    <div className="alternate-header-text">
-                      <div className="crag-top-row">
-                        <div className="rank-pill">#{index + 2}</div>
-                        <div className={scoreClass(alt.dry_score)}>{alt.dry_score}</div>
-                      </div>
+                    <h3>{alt.area}</h3>
 
-                      <h3>{alt.area}</h3>
-
-                      <div className="crag-meta-line">
-                        <span>{alt.rock_type || "unknown rock"}</span>
-                      </div>
+                    <div className="crag-meta-line">
+                      <span>{alt.rock_type || "unknown rock"}</span>
                     </div>
                   </div>
-
-                  <div className="alternate-stats">
-                    <div className="mini-stat">
-                      <span>Drive</span>
-                      <strong>{alt.drive_time} hrs</strong>
-                    </div>
-
-                    <div className="mini-stat">
-                      <span>Window</span>
-                      <strong>{alt.best_window}</strong>
-                    </div>
-
-                    <div className="mini-stat">
-                      <span>Overhang</span>
-                      <strong>{alt.overhang || "n/a"}</strong>
-                    </div>
-                  </div>
-
-                  <DryingDetails item={alt} compact />
-
-                  <div className="backup-forecast-block">
-                    <span className="backup-forecast-label">5-Day Forecast</span>
-                    <ForecastScoreRow forecast={alt.forecast} compact />
-                  </div>
-
-                  <a
-                    className="nav-button small"
-                    href={getMapLink(alt.area)}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Navigate
-                  </a>
                 </div>
-              );
-            })}
+
+                <div className="alternate-stats">
+                  <div className="mini-stat">
+                    <span>Drive</span>
+                    <strong>{alt.drive_time} hrs</strong>
+                  </div>
+
+                  <div className="mini-stat">
+                    <span>Window</span>
+                    <strong>{alt.best_window}</strong>
+                  </div>
+
+                  <div className="mini-stat">
+                    <span>Overhang</span>
+                    <strong>{alt.overhang || "n/a"}</strong>
+                  </div>
+                </div>
+
+                <div className="alternate-stats">
+                  <div className="mini-stat">
+                    <span>Last rain</span>
+                    <strong>{alt.last_rain_event || "n/a"}</strong>
+                  </div>
+
+                  <div className="mini-stat">
+                    <span>Estimated dry</span>
+                    <strong>{alt.estimated_dry || "n/a"}</strong>
+                  </div>
+
+                  <div className="mini-stat">
+                    <span>Confidence</span>
+                    <strong>{alt.drying_confidence || "Low"}</strong>
+                  </div>
+                </div>
+
+                <div className="backup-forecast-block">
+                  <span className="backup-forecast-label">5-Day Outlook</span>
+                  <OutlookRow forecast={alt.forecast} compact />
+                </div>
+
+                <a
+                  className="nav-button small"
+                  href={getMapLink(alt.area)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Navigate
+                </a>
+              </div>
+            ))}
           </div>
         </div>
       </div>
