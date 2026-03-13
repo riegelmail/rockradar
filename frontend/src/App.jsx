@@ -17,6 +17,10 @@ import squamishChekSmokeBluffsPhoto from "./assets/crags/squamish-chek-smoke-blu
 import squamishGrandWallApronPhoto from "./assets/crags/squamish-grand-wall-apron.jpg";
 import squamishGrandWallBouldersPhoto from "./assets/crags/squamish-grand-wall-boulders.jpg";
 
+const API_BASE = "https://rockradar-backend.onrender.com";
+const WEATHER_CACHE_TTL_MS = 25 * 60 * 1000;
+const FEEDBACK_URL = "https://forms.gle/REPLACE_ME";
+
 const cragPhotos = {
   "Index – River Boulders": indexRiverBouldersPhoto,
   "Index – Overhung / Hagakure-ish": indexHagakurePhoto,
@@ -56,7 +60,6 @@ function getCragPhoto(area) {
   );
 
   if (match) return match[1];
-
   return fallbackCragPhoto;
 }
 
@@ -79,20 +82,8 @@ function confidenceClass(confidence) {
 
 function signalClass(signal) {
   if (signal === "Good") return "score-pill score-green";
-  if (signal === "Mixed") return "score-pill score-yellow";
+  if (signal === "Fair") return "score-pill score-yellow";
   return "score-pill score-red";
-}
-
-function getInitialHome() {
-  if (typeof window === "undefined") return "Mirrormont, WA";
-  return localStorage.getItem("rockradarHome") || "Mirrormont, WA";
-}
-
-function outlookLabelFromScore(score) {
-  if (typeof score !== "number") return "Drying";
-  if (score >= 75) return "Dry";
-  if (score >= 45) return "Drying";
-  return "Wet";
 }
 
 function outlookClass(label) {
@@ -101,41 +92,259 @@ function outlookClass(label) {
   return "score-pill score-red";
 }
 
+function getInitialHome() {
+  if (typeof window === "undefined") return "Mirrormont, WA";
+  return localStorage.getItem("rockradarHome") || "Mirrormont, WA";
+}
+
+function getCache(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.timestamp || !parsed?.data) return null;
+    if (Date.now() - parsed.timestamp > WEATHER_CACHE_TTL_MS) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function setCache(key, data) {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        timestamp: Date.now(),
+        data,
+      })
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function cToF(c) {
+  return Math.round(((c * 9) / 5 + 32) * 10) / 10;
+}
+
+function kmhToMph(kmh) {
+  return Math.round(kmh * 0.621371 * 10) / 10;
+}
+
+function formatForecastDay(index, isoDate) {
+  if (index === 0) return "Today";
+  if (index === 1) return "Tomorrow";
+  return new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(
+    new Date(`${isoDate}T12:00:00`)
+  );
+}
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, options);
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return res.json();
+}
+
+async function geocodeHome(homeQuery) {
+  const query = homeQuery?.trim() || "Mirrormont, WA";
+  const cacheKey = `homeGeocode:${query}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("countrycodes", "us,ca");
+
+  const res = await fetch(url.toString(), {
+    headers: { "User-Agent": "RockRadar/1.0" },
+  });
+
+  if (!res.ok) {
+    return { name: query, lat: 47.484, lon: -121.999 };
+  }
+
+  const data = await res.json();
+  if (!data?.length) {
+    return { name: query, lat: 47.484, lon: -121.999 };
+  }
+
+  const result = {
+    name: query,
+    lat: Number(data[0].lat),
+    lon: Number(data[0].lon),
+  };
+
+  setCache(cacheKey, result);
+  return result;
+}
+
+async function fetchCragWeather(crag) {
+  const cacheKey = `cragWeather:${crag.name}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached;
+
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  url.searchParams.set("latitude", crag.lat);
+  url.searchParams.set("longitude", crag.lon);
+  url.searchParams.set(
+    "current",
+    "temperature_2m,wind_speed_10m,precipitation,relative_humidity_2m,dew_point_2m"
+  );
+  url.searchParams.set("hourly", "precipitation");
+  url.searchParams.set("past_days", "1");
+  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
+  url.searchParams.set("forecast_days", "5");
+  url.searchParams.set("timezone", "auto");
+
+  const data = await fetchJson(url.toString());
+
+  const current = data.current || {};
+  const hourlyPrecip = data.hourly?.precipitation || [];
+  const rain24h = hourlyPrecip.slice(-24).reduce((sum, n) => sum + Number(n || 0), 0);
+
+  const normalized = {
+    name: crag.name,
+    current: {
+      temperature_f: cToF(Number(current.temperature_2m || 0)),
+      humidity: Number(current.relative_humidity_2m || 0),
+      dew_point_f: cToF(Number(current.dew_point_2m || 0)),
+      wind_mph: kmhToMph(Number(current.wind_speed_10m || 0)),
+      rain_now: Number(current.precipitation || 0),
+      rain_24h: Math.round(rain24h * 100) / 100,
+    },
+    forecast: (data.daily?.time || []).map((isoDate, index) => ({
+      day: formatForecastDay(index, isoDate),
+      high_f: cToF(Number(data.daily.temperature_2m_max?.[index] || 0)),
+      low_f: cToF(Number(data.daily.temperature_2m_min?.[index] || 0)),
+      precip: Number(data.daily.precipitation_sum?.[index] || 0),
+      humidity: Number(current.relative_humidity_2m || 60),
+      dew_point_f: cToF(Number(current.dew_point_2m || 0)),
+      wind_mph: kmhToMph(Number(current.wind_speed_10m || 0)),
+    })),
+  };
+
+  setCache(cacheKey, normalized);
+  return normalized;
+}
+
 function ForecastOutlookRow({ forecast, compact = false }) {
   if (!forecast || forecast.length === 0) return null;
 
   return (
     <div className={`forecast-score-row ${compact ? "compact" : ""}`}>
-      {forecast.map((day, index) => {
-        const label = day.label || outlookLabelFromScore(day.score);
-        const dayName = day.day || `Day ${index + 1}`;
-
-        return (
-          <div className="forecast-score-item" key={`${dayName}-${index}`}>
-            <span className="forecast-score-day">{dayName}</span>
-            <span className={outlookClass(label)}>{label}</span>
-          </div>
-        );
-      })}
+      {forecast.map((day, index) => (
+        <div className="forecast-score-item" key={`${day.day}-${index}`}>
+          <span className="forecast-score-day">{day.day}</span>
+          <span className={outlookClass(day.label)}>{day.label}</span>
+        </div>
+      ))}
     </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <>
+      <div className="top-pick-card skeleton-panel">
+        <div className="skeleton-line skeleton-line-lg" />
+        <div className="skeleton-line skeleton-line-md" />
+        <div className="skeleton-chip-row">
+          <div className="skeleton-chip" />
+          <div className="skeleton-chip" />
+          <div className="skeleton-chip" />
+        </div>
+        <div className="skeleton-grid">
+          <div className="skeleton-box" />
+          <div className="skeleton-box" />
+          <div className="skeleton-box" />
+          <div className="skeleton-box" />
+        </div>
+      </div>
+
+      <div className="alternates-section">
+        <div className="alternates-grid">
+          {[1, 2, 3].map((item) => (
+            <div className="alternate-card skeleton-panel" key={item}>
+              <div className="skeleton-line skeleton-line-md" />
+              <div className="skeleton-line skeleton-line-sm" />
+              <div className="skeleton-grid">
+                <div className="skeleton-box" />
+                <div className="skeleton-box" />
+                <div className="skeleton-box" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
 function App() {
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [maxHours, setMaxHours] = useState(3);
   const [style, setStyle] = useState("all");
   const [homeInput, setHomeInput] = useState(getInitialHome());
   const [homeBase, setHomeBase] = useState(getInitialHome());
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(
-      `https://rockradar-backend.onrender.com/api/recommendations?max_hours=${maxHours}&style=${style}&home_query=${encodeURIComponent(homeBase)}`
-    )
-      .then((res) => res.json())
-      .then((json) => setData(json))
-      .catch((err) => console.error(err));
-  }, [maxHours, style, homeBase]);
+    let cancelled = false;
+
+    async function loadData() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const cacheKey = `scoreResult:${homeBase}:${maxHours}:${style}`;
+        const cachedScore = getCache(cacheKey);
+        if (cachedScore && !cancelled) {
+          setData(cachedScore);
+          setLoading(false);
+        }
+
+        const [crags, home] = await Promise.all([
+          fetchJson(`${API_BASE}/api/crags`),
+          geocodeHome(homeBase),
+        ]);
+
+        const weather = (await Promise.all(crags.map(fetchCragWeather))).filter(Boolean);
+
+        const scored = await fetchJson(`${API_BASE}/api/score`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            home,
+            max_hours: maxHours,
+            style,
+            weather,
+          }),
+        });
+
+        if (!cancelled) {
+          setData(scored);
+          setCache(cacheKey, scored);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          setError("Could not load current conditions.");
+          setLoading(false);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [homeBase, maxHours, style]);
 
   function applyHomeBase() {
     localStorage.setItem("rockradarHome", homeInput);
@@ -143,10 +352,6 @@ function App() {
   }
 
   const alternates = useMemo(() => data?.alternates?.slice(0, 3) || [], [data]);
-
-  if (!data) {
-    return <div className="container">Loading RockRadar...</div>;
-  }
 
   return (
     <div className="app-shell">
@@ -157,10 +362,12 @@ function App() {
             <h1>RockRadar</h1>
 
             <div className="hero-meta">
-              <span className="meta-pill">Home: {data.home}</span>
-              <span className={`meta-pill ${scoreClass(data.dry_score)}`}>
-                Conditions Score: {data.dry_score}
-              </span>
+              <span className="meta-pill">Home: {data?.home || homeBase}</span>
+              {data?.climbability_rating && (
+                <span className={signalClass(data.climbability_rating)}>
+                  Climbing Conditions: {data.climbability_rating}
+                </span>
+              )}
             </div>
           </div>
 
@@ -170,6 +377,7 @@ function App() {
               className="hero-icon"
               alt="climbing hand on rock"
               style={{ objectFit: "cover" }}
+              loading="lazy"
             />
           </div>
         </div>
@@ -191,10 +399,7 @@ function App() {
           <div className="control-row">
             <div className="control-group">
               <label>Max drive time</label>
-              <select
-                value={maxHours}
-                onChange={(e) => setMaxHours(Number(e.target.value))}
-              >
+              <select value={maxHours} onChange={(e) => setMaxHours(Number(e.target.value))}>
                 <option value="1">1 hour</option>
                 <option value="2">2 hours</option>
                 <option value="3">3 hours</option>
@@ -207,10 +412,7 @@ function App() {
 
             <div className="control-group">
               <label>Climbing style</label>
-              <select
-                value={style}
-                onChange={(e) => setStyle(e.target.value)}
-              >
+              <select value={style} onChange={(e) => setStyle(e.target.value)}>
                 <option value="all">All</option>
                 <option value="sport">Sport</option>
                 <option value="trad">Trad</option>
@@ -220,219 +422,241 @@ function App() {
           </div>
         </div>
 
-        <div className="top-pick-card">
-          <div className="crag-header">
-            <img
-              className="crag-photo"
-              src={getCragPhoto(data.best_area)}
-              alt={data.best_area}
-            />
+        {error ? <div className="top-pick-card">{error}</div> : null}
 
-            <div className="crag-header-text">
-              <div className="crag-top-row">
-                <div className="rank-pill">#1 Top Pick</div>
-                <div className={scoreClass(data.dry_score)}>{data.dry_score}</div>
-              </div>
+        {loading && !data ? (
+          <LoadingSkeleton />
+        ) : data ? (
+          <>
+            <div className="top-pick-card">
+              <div className="crag-header">
+                <img
+                  className="crag-photo"
+                  src={getCragPhoto(data.best_area)}
+                  alt={data.best_area}
+                  loading="lazy"
+                />
 
-              <h2 className="crag-name">{data.best_area}</h2>
+                <div className="crag-header-text">
+                  <div className="crag-top-row">
+                    <div className="rank-pill">#1 Top Pick</div>
+                    <div className={scoreClass(data.dry_score)}>Model Score: {data.dry_score}</div>
+                  </div>
 
-              <div className="crag-meta-line">
-                <span>{data.rock_type || "unknown rock"}</span>
-              </div>
-            </div>
-          </div>
+                  <h2 className="crag-name">{data.best_area}</h2>
 
-          <div className="stats-grid">
-            <div className="stat-box">
-              <span className="stat-label">Drive</span>
-              <span className="stat-value">{data.drive_time} hrs</span>
-            </div>
-
-            <div className="stat-box">
-              <span className="stat-label">Best window</span>
-              <span className="stat-value">{data.best_window}</span>
-            </div>
-
-            <div className="stat-box">
-              <span className="stat-label">Overhang</span>
-              <span className="stat-value">{data.overhang || "n/a"}</span>
-            </div>
-          </div>
-
-          <div className="conditions-card">
-            <div className="section-card-head">
-              <h3>Conditions</h3>
-              <span className="freshness-text">{data.freshness_text}</span>
-            </div>
-
-            <div className="conditions-grid">
-              <div className="condition-pill">
-                <span>Temp</span>
-                <strong>{data.temperature}°F</strong>
-              </div>
-
-              <div className="condition-pill">
-                <span>Humidity</span>
-                <strong>{data.humidity}%</strong>
-              </div>
-
-              <div className="condition-pill">
-                <span>Dew Pt</span>
-                <strong>{data.dew_point}°F</strong>
-              </div>
-
-              <div className="condition-pill">
-                <span>Rain</span>
-                <strong>{data.rain}</strong>
-              </div>
-
-              <div className="condition-pill">
-                <span>Wind</span>
-                <strong>{data.wind}</strong>
-              </div>
-            </div>
-          </div>
-
-          <div className="conditions-card">
-            <div className="section-card-head">
-              <h3>Drying</h3>
-            </div>
-
-            <div className="conditions-grid">
-              <div className="condition-pill">
-                <span>Last rain</span>
-                <strong>{data.last_rain_event || "n/a"}</strong>
-              </div>
-
-              <div className="condition-pill">
-                <span>Estimated dry</span>
-                <strong>{data.estimated_dry || "n/a"}</strong>
-              </div>
-
-              <div className="condition-pill">
-                <span>Confidence</span>
-                <strong className={confidenceClass(data.drying_confidence)}>
-                  {data.drying_confidence || "Low"}
-                </strong>
-              </div>
-            </div>
-          </div>
-
-          {data.forecast && data.forecast.length > 0 && (
-            <div className="forecast-card">
-              <div className="section-card-head">
-                <h3>5-Day Outlook</h3>
-              </div>
-
-              <ForecastOutlookRow forecast={data.forecast} />
-            </div>
-          )}
-
-          <div className="why-card">
-            <div className="section-card-head">
-              <h3>Condition Signal</h3>
-              <span className={signalClass(data.signal_level)}>
-                {data.signal_level || "Poor"}
-              </span>
-            </div>
-
-            <p>{data.signal_summary || "Conditions look uncertain right now."}</p>
-
-            {data.signal_reasons && data.signal_reasons.length > 0 && (
-              <div className="signal-reasons">
-                {data.signal_reasons.slice(0, 4).map((reason, index) => (
-                  <p key={`${reason}-${index}`}>• {reason}</p>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <a
-            className="nav-button"
-            href={getMapLink(data.best_area)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Navigate
-          </a>
-        </div>
-
-        <div className="alternates-section">
-          <div className="alternates-header">
-            <h2 className="alternates-title">Ranked Backups</h2>
-            <p className="alternates-note">
-              Backup options with drying estimate and 5-day outlook.
-            </p>
-          </div>
-
-          <div className="alternates-grid">
-            {alternates.map((alt, index) => (
-              <div className="alternate-card" key={alt.area}>
-                <div className="alternate-top">
-                  <img
-                    className="alternate-photo"
-                    src={getCragPhoto(alt.area)}
-                    alt={alt.area}
-                  />
-
-                  <div className="alternate-header-text">
-                    <div className="crag-top-row">
-                      <div className="rank-pill">#{index + 2}</div>
-                      <div className={scoreClass(alt.dry_score)}>{alt.dry_score}</div>
-                    </div>
-
-                    <h3>{alt.area}</h3>
-
-                    <div className="crag-meta-line">
-                      <span>{alt.rock_type || "unknown rock"}</span>
-                    </div>
+                  <div className="crag-meta-line">
+                    <span>{data.rock_type || "unknown rock"}</span>
                   </div>
                 </div>
+              </div>
 
-                <div className="alternate-stats">
-                  <div className="mini-stat">
-                    <span>Drive</span>
-                    <strong>{alt.drive_time} hrs</strong>
+              <div className="stats-grid">
+                <div className="stat-box">
+                  <span className="stat-label">Drive</span>
+                  <span className="stat-value">{data.drive_time} hrs</span>
+                </div>
+
+                <div className="stat-box">
+                  <span className="stat-label">Best window</span>
+                  <span className="stat-value">{data.best_window}</span>
+                </div>
+
+                <div className="stat-box">
+                  <span className="stat-label">Overhang</span>
+                  <span className="stat-value">{data.overhang || "n/a"}</span>
+                </div>
+              </div>
+
+              <div className="conditions-card">
+                <div className="section-card-head">
+                  <h3>Conditions</h3>
+                  <span className="freshness-text">{data.freshness_text}</span>
+                </div>
+
+                <div className="conditions-grid">
+                  <div className="condition-pill">
+                    <span>Temp</span>
+                    <strong>{data.temperature}°F</strong>
                   </div>
 
-                  <div className="mini-stat">
-                    <span>Dry by</span>
-                    <strong>{alt.estimated_dry || "n/a"}</strong>
+                  <div className="condition-pill">
+                    <span>Humidity</span>
+                    <strong>{data.humidity}%</strong>
                   </div>
 
-                  <div className="mini-stat">
+                  <div className="condition-pill">
+                    <span>Dew Pt</span>
+                    <strong>{data.dew_point}°F</strong>
+                  </div>
+
+                  <div className="condition-pill">
+                    <span>Rain</span>
+                    <strong>{data.rain}</strong>
+                  </div>
+
+                  <div className="condition-pill">
+                    <span>Wind</span>
+                    <strong>{data.wind}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="conditions-card">
+                <div className="section-card-head">
+                  <h3>Drying</h3>
+                </div>
+
+                <div className="conditions-grid">
+                  <div className="condition-pill">
+                    <span>Last rain</span>
+                    <strong>{data.last_rain_event || "n/a"}</strong>
+                  </div>
+
+                  <div className="condition-pill">
+                    <span>Estimated dry</span>
+                    <strong>{data.estimated_dry || "n/a"}</strong>
+                  </div>
+
+                  <div className="condition-pill">
                     <span>Confidence</span>
-                    <strong className={confidenceClass(alt.drying_confidence)}>
-                      {alt.drying_confidence || "Low"}
+                    <strong className={confidenceClass(data.drying_confidence)}>
+                      {data.drying_confidence || "Low"}
                     </strong>
                   </div>
                 </div>
-
-                <div className="backup-forecast-block">
-                  <span className="backup-forecast-label">5-Day Outlook</span>
-                  <ForecastOutlookRow forecast={alt.forecast} compact />
-                </div>
-
-                <div className="mini-stat" style={{ marginTop: "0.85rem" }}>
-                  <span>Signal</span>
-                  <strong className={signalClass(alt.signal_level)}>
-                    {alt.signal_level || "Poor"}
-                  </strong>
-                </div>
-
-                <a
-                  className="nav-button small"
-                  href={getMapLink(alt.area)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Navigate
-                </a>
               </div>
-            ))}
-          </div>
-        </div>
+
+              {data.forecast && data.forecast.length > 0 && (
+                <div className="forecast-card">
+                  <div className="section-card-head">
+                    <h3>5-Day Outlook</h3>
+                  </div>
+
+                  <ForecastOutlookRow forecast={data.forecast} />
+                </div>
+              )}
+
+              <div className="why-card">
+                <div className="section-card-head">
+                  <h3>Climbing Conditions</h3>
+                  <span className={signalClass(data.climbability_rating)}>
+                    {data.climbability_rating || "Bad"}
+                  </span>
+                </div>
+
+                <p>{data.signal_summary || "Conditions look uncertain right now."}</p>
+
+                {data.signal_reasons && data.signal_reasons.length > 0 && (
+                  <div className="signal-reasons">
+                    {data.signal_reasons.slice(0, 4).map((reason, index) => (
+                      <p key={`${reason}-${index}`}>• {reason}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <a
+                className="nav-button"
+                href={getMapLink(data.best_area)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Navigate
+              </a>
+            </div>
+
+            <div className="alternates-section">
+              <div className="alternates-header">
+                <h2 className="alternates-title">Ranked Backups</h2>
+                <p className="alternates-note">
+                  Backup options with drying estimate and 5-day outlook.
+                </p>
+              </div>
+
+              <div className="alternates-grid">
+                {alternates.map((alt, index) => (
+                  <div className="alternate-card" key={alt.area}>
+                    <div className="alternate-top">
+                      <img
+                        className="alternate-photo"
+                        src={getCragPhoto(alt.area)}
+                        alt={alt.area}
+                        loading="lazy"
+                      />
+
+                      <div className="alternate-header-text">
+                        <div className="crag-top-row">
+                          <div className="rank-pill">#{index + 2}</div>
+                          <div className={scoreClass(alt.dry_score)}>
+                            Model Score: {alt.dry_score}
+                          </div>
+                        </div>
+
+                        <h3>{alt.area}</h3>
+
+                        <div className="crag-meta-line">
+                          <span>{alt.rock_type || "unknown rock"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="alternate-stats">
+                      <div className="mini-stat">
+                        <span>Drive</span>
+                        <strong>{alt.drive_time} hrs</strong>
+                      </div>
+
+                      <div className="mini-stat">
+                        <span>Dry by</span>
+                        <strong>{alt.estimated_dry || "n/a"}</strong>
+                      </div>
+
+                      <div className="mini-stat">
+                        <span>Confidence</span>
+                        <strong className={confidenceClass(alt.drying_confidence)}>
+                          {alt.drying_confidence || "Low"}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="backup-forecast-block">
+                      <span className="backup-forecast-label">5-Day Outlook</span>
+                      <ForecastOutlookRow forecast={alt.forecast} compact />
+                    </div>
+
+                    <div className="mini-stat" style={{ marginTop: "0.85rem" }}>
+                      <span>Climbing Conditions</span>
+                      <strong className={signalClass(alt.climbability_rating)}>
+                        {alt.climbability_rating || "Bad"}
+                      </strong>
+                    </div>
+
+                    <a
+                      className="nav-button small"
+                      href={getMapLink(alt.area)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Navigate
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : null}
       </div>
+
+      <a
+        className="feedback-fab"
+        href={FEEDBACK_URL}
+        target="_blank"
+        rel="noreferrer"
+        title="Share feedback or ideas"
+      >
+        Suggest an improvement
+      </a>
     </div>
   );
 }
