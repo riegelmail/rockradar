@@ -71,15 +71,21 @@ function scoreClass(score) {
   return "score-pill score-red";
 }
 
-function getInitialHome() {
-  if (typeof window === "undefined") return "Mirrormont, WA";
-  return localStorage.getItem("rockradarHome") || "Mirrormont, WA";
-}
-
 function confidenceClass(confidence) {
   if (confidence === "High") return "score-pill score-green";
   if (confidence === "Medium") return "score-pill score-yellow";
   return "score-pill score-red";
+}
+
+function signalClass(signal) {
+  if (signal === "Good") return "score-pill score-green";
+  if (signal === "Mixed") return "score-pill score-yellow";
+  return "score-pill score-red";
+}
+
+function getInitialHome() {
+  if (typeof window === "undefined") return "Mirrormont, WA";
+  return localStorage.getItem("rockradarHome") || "Mirrormont, WA";
 }
 
 function outlookLabelFromScore(score) {
@@ -324,9 +330,21 @@ function App() {
 
           <div className="why-card">
             <div className="section-card-head">
-              <h3>Why</h3>
+              <h3>Condition Signal</h3>
+              <span className={signalClass(data.signal_level)}>
+                {data.signal_level || "Poor"}
+              </span>
             </div>
-            <p>{data.reason}</p>
+
+            <p>{data.signal_summary || "Conditions look uncertain right now."}</p>
+
+            {data.signal_reasons && data.signal_reasons.length > 0 && (
+              <div className="signal-reasons">
+                {data.signal_reasons.slice(0, 4).map((reason, index) => (
+                  <p key={`${reason}-${index}`}>• {reason}</p>
+                ))}
+              </div>
+            )}
           </div>
 
           <a
@@ -393,6 +411,13 @@ function App() {
                 <div className="backup-forecast-block">
                   <span className="backup-forecast-label">5-Day Outlook</span>
                   <ForecastOutlookRow forecast={alt.forecast} compact />
+                </div>
+
+                <div className="mini-stat" style={{ marginTop: "0.85rem" }}>
+                  <span>Signal</span>
+                  <strong className={signalClass(alt.signal_level)}>
+                    {alt.signal_level || "Poor"}
+                  </strong>
                 </div>
 
                 <a
