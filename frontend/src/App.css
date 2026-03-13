@@ -278,6 +278,7 @@ body::before {
   font-size: 0.82rem;
   font-weight: 800;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  white-space: nowrap;
 }
 
 .score-green {
@@ -347,6 +348,7 @@ body::before {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .section-card-head h3 {
@@ -425,15 +427,37 @@ body::before {
   font-size: 0.62rem;
 }
 
-/* WHY */
+/* CONDITION SIGNAL */
 
-.scoring-link {
-  font-size: 0.82rem;
-  color: #467a58;
-  text-decoration: none;
+.why-card {
+  background: rgba(255, 255, 255, 0.4);
 }
 
-.why-card p {
+.why-card .section-card-head {
+  align-items: center;
+}
+
+.why-card .section-card-head .score-pill {
+  font-size: 0.88rem;
+  padding: 7px 14px;
+}
+
+.why-card > p {
+  margin: 0 0 10px;
+  line-height: 1.55;
+  color: #334155;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.signal-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.signal-reasons p {
   margin: 0;
   line-height: 1.5;
   color: #475569;
@@ -548,6 +572,17 @@ body::before {
   margin-bottom: 6px;
 }
 
+/* BACKUP SIGNAL */
+
+.alternate-card .mini-stat .score-pill {
+  margin-top: 4px;
+  width: 100%;
+  justify-content: center;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+}
+
 /* RESPONSIVE */
 
 @media (max-width: 980px) {
@@ -627,5 +662,13 @@ body::before {
 
   .alternate-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .why-card > p {
+    font-size: 0.94rem;
+  }
+
+  .signal-reasons p {
+    font-size: 0.86rem;
   }
 }
