@@ -262,7 +262,7 @@ def estimate_drying_time_hours(crag, rain_24h, rain_now, humidity, dew_spread, t
     hours = 0.0
 
     hours += rain_24h * 2.4
-    hours += rain_now * 6.0
+    hours += rain_now * 18.0
 
     wet_mult = {"low": 0.8, "medium": 1.15, "high": 1.75}.get(
         crag.get("wet_sensitive", "medium"), 1.15
@@ -307,6 +307,9 @@ def estimate_drying_time_hours(crag, rain_24h, rain_now, humidity, dew_spread, t
     elif temp_f > 58:
         hours *= 0.92
 
+    if rain_now > 0.05:
+        hours = max(hours, 72.0)
+
     return round(max(0, hours), 1)
 
 
@@ -320,8 +323,11 @@ def estimated_dry_text(hours):
     return f"{round(hours / 24)} days"
 
 
-def drying_confidence_label(rain_24h, rain_now, humidity, dew_spread, source):
+def drying_confidence_label(rain_24h, rain_now, humidity, dew_spread, source, estimated_dry_hours):
     if rain_now > 0.05:
+        return "High"
+
+    if rain_24h <= 0.05 and estimated_dry_hours <= 0.5:
         return "High"
 
     score = 100
@@ -352,6 +358,14 @@ def last_rain_text(rain_24h, rain_now):
     if rain_24h <= 0.75:
         return "Moderate rain in last 24h"
     return "Heavy rain in last 24h"
+
+
+def forecast_label_from_score(score):
+    if score >= 75:
+        return "Dry"
+    if score >= 45:
+        return "Drying"
+    return "Wet"
 
 
 def build_fallback_results(crags):
@@ -499,6 +513,7 @@ def build_fallback_forecast(crag):
             {
                 "day": day_name,
                 "score": score,
+                "label": forecast_label_from_score(score),
             }
         )
 
@@ -540,6 +555,7 @@ def get_crag_forecast(crag):
                 {
                     "day": datetime.fromisoformat(day).strftime("%a"),
                     "score": score,
+                    "label": forecast_label_from_score(score),
                 }
             )
 
@@ -550,6 +566,63 @@ def get_crag_forecast(crag):
         fallback_forecast = build_fallback_forecast(crag)
         FORECAST_CACHE[cache_key] = {"timestamp": now, "data": fallback_forecast}
         return fallback_forecast
+
+
+def build_condition_signal(score, rain_now, rain_24h, estimated_dry_hours, forecast, drying_confidence):
+    reasons = []
+
+    if rain_now > 0.05:
+        level = "Poor"
+        summary = "Skip it for now. The rock is actively wet and this looks like a bad climbing bet."
+        reasons.append("It is currently raining at the crag.")
+        reasons.append("You are looking at real drying time after the rain stops, not a quick bounce-back.")
+        if forecast:
+            future_dry_days = sum(1 for day in forecast if day.get("label") == "Dry")
+            if future_dry_days >= 2:
+                reasons.append("The outlook does improve later, just not right now.")
+        return level, summary, reasons
+
+    wet_days = sum(1 for day in forecast if day.get("label") == "Wet")
+    drying_days = sum(1 for day in forecast if day.get("label") == "Drying")
+    dry_days = sum(1 for day in forecast if day.get("label") == "Dry")
+
+    if score >= 85 and estimated_dry_hours <= 2:
+        level = "Good"
+        summary = "This looks worth the drive. Conditions are favorable and the rock should be ready now or very soon."
+    elif score >= 60 or drying_days >= 2 or dry_days >= 2:
+        level = "Mixed"
+        summary = "This is a maybe. Some terrain could go, but you are still depending on drying progress and timing."
+    else:
+        level = "Poor"
+        summary = "This looks like a weak option right now. There are probably better places to spend the day."
+
+    if rain_24h <= 0.05:
+        reasons.append("There has been little to no recent rain.")
+    elif rain_24h <= 0.75:
+        reasons.append("Recent rain is still part of the story, but not an automatic deal-breaker.")
+    else:
+        reasons.append("Recent rain load is significant and likely still affecting the rock.")
+
+    if estimated_dry_hours <= 0.5:
+        reasons.append("The rock should be climbable now if the rest of the signal holds.")
+    elif estimated_dry_hours <= 12:
+        reasons.append(f"Estimated drying time is about {round(estimated_dry_hours)} hours.")
+    else:
+        reasons.append(f"Estimated drying time is about {round(estimated_dry_hours / 24, 1)} days.")
+
+    if dry_days >= 3:
+        reasons.append("The 5-day outlook is mostly favorable.")
+    elif wet_days >= 3:
+        reasons.append("The 5-day outlook stays pretty wet.")
+    elif drying_days >= 2:
+        reasons.append("The next few days look more like a drying trend than fully dry conditions.")
+
+    if drying_confidence == "High":
+        reasons.append("Confidence is relatively strong based on the current weather signal.")
+    elif drying_confidence == "Low":
+        reasons.append("Confidence is softer here, so this call has a bit more uncertainty.")
+
+    return level, summary, reasons
 
 
 def score_crag(crag, weather_tuple, home):
@@ -660,11 +733,17 @@ def score_crag(crag, weather_tuple, home):
         humidity=humidity,
         dew_spread=dew_spread,
         source=source,
+        estimated_dry_hours=estimated_dry_hours,
     )
 
-    reason = (
-        "Scored using recent rain, estimated drying time, humidity, dew point spread, "
-        "temperature, sun exposure, overhang, and rock sensitivity."
+    forecast = get_crag_forecast(crag)
+    signal_level, signal_summary, signal_reasons = build_condition_signal(
+        score=score,
+        rain_now=rain_now,
+        rain_24h=rain_24h,
+        estimated_dry_hours=estimated_dry_hours,
+        forecast=forecast,
+        drying_confidence=drying_confidence,
     )
 
     freshness_text = f"Conditions updated every {CACHE_TTL_MINUTES} minutes"
@@ -687,8 +766,11 @@ def score_crag(crag, weather_tuple, home):
         "estimated_dry": estimated_dry,
         "estimated_dry_hours": estimated_dry_hours,
         "drying_confidence": drying_confidence,
-        "reason": reason,
+        "signal_level": signal_level,
+        "signal_summary": signal_summary,
+        "signal_reasons": signal_reasons,
         "freshness_text": freshness_text,
+        "forecast": forecast,
     }
 
 
@@ -725,7 +807,9 @@ def recommendations(
             "estimated_dry": "n/a",
             "estimated_dry_hours": 0,
             "drying_confidence": "Low",
-            "reason": "Try increasing max drive time or changing style.",
+            "signal_level": "Poor",
+            "signal_summary": "Nothing useful is in range right now. Widen the net or switch styles.",
+            "signal_reasons": ["Try increasing max drive time or changing style."],
             "freshness_text": f"Conditions updated every {CACHE_TTL_MINUTES} minutes",
             "forecast": [],
             "alternates": [],
@@ -733,18 +817,8 @@ def recommendations(
 
     filtered.sort(key=lambda x: x["dry_score"], reverse=True)
     best = filtered[0]
-    best_crag_data = next(c for c in CRAGS if c["name"] == best["area"])
-    forecast = get_crag_forecast(best_crag_data)
 
-    alternates = []
-    for alt in filtered[1:4]:
-        alt_crag_data = next(c for c in CRAGS if c["name"] == alt["area"])
-        alternates.append(
-            {
-                **alt,
-                "forecast": get_crag_forecast(alt_crag_data),
-            }
-        )
+    alternates = filtered[1:4]
 
     return {
         "home": home["name"],
@@ -763,10 +837,12 @@ def recommendations(
         "estimated_dry": best["estimated_dry"],
         "estimated_dry_hours": best["estimated_dry_hours"],
         "drying_confidence": best["drying_confidence"],
-        "reason": best["reason"],
+        "signal_level": best["signal_level"],
+        "signal_summary": best["signal_summary"],
+        "signal_reasons": best["signal_reasons"],
         "rock_type": best["rock_type"],
         "overhang": best["overhang"],
         "freshness_text": best["freshness_text"],
-        "forecast": forecast,
+        "forecast": best["forecast"],
         "alternates": alternates,
     }
