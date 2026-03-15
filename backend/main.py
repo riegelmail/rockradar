@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import random
+from datetime import datetime
 
 app = FastAPI()
 
-# allow frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -12,37 +13,86 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def root():
-    return {"message": "RockRadar backend running"}
+AREAS = [
+    {
+        "area": "Index",
+        "style": "trad",
+        "rock_type": "granite",
+        "overhang": "Low",
+        "wet_sensitive": "high",
+        "drive_time": 1.2,
+    },
+    {
+        "area": "Leavenworth – Icicle Canyon",
+        "style": "trad",
+        "rock_type": "granite",
+        "overhang": "Low",
+        "wet_sensitive": "medium",
+        "drive_time": 1.8,
+    },
+    {
+        "area": "Tieton – The Bend",
+        "style": "sport",
+        "rock_type": "basalt",
+        "overhang": "Medium",
+        "wet_sensitive": "low",
+        "drive_time": 2.6,
+    },
+    {
+        "area": "Vantage – Frenchman Coulee",
+        "style": "sport",
+        "rock_type": "basalt",
+        "overhang": "Medium",
+        "wet_sensitive": "low",
+        "drive_time": 2.7,
+    },
+    {
+        "area": "Exit 38 – North Bend",
+        "style": "sport",
+        "rock_type": "volcanic",
+        "overhang": "Medium",
+        "wet_sensitive": "medium",
+        "drive_time": 0.6,
+    },
+]
 
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
 
-@app.get("/api/crags")
-def get_crags():
-    return [
-        {"name": "Index", "lat": 47.8106, "lon": -121.5537, "style": "trad"},
-        {"name": "Leavenworth", "lat": 47.5962, "lon": -120.6615, "style": "sport"},
-        {"name": "Tieton", "lat": 46.7326, "lon": -121.0706, "style": "sport"},
-        {"name": "Exit 38", "lat": 47.4357, "lon": -121.7015, "style": "sport"},
-        {"name": "Vantage", "lat": 46.9465, "lon": -119.9870, "style": "sport"}
-    ]
+def generate_conditions(area):
+    rain = random.choice([0, 0, 0, 0.2, 0.4])
+    humidity = random.randint(40, 95)
+    temperature = random.randint(35, 65)
 
-@app.post("/api/score")
-def score():
+    dry_score = max(0, 100 - (humidity - 40) - rain * 50)
+
+    if rain > 0.2:
+        status = "No Go"
+    elif dry_score > 70:
+        status = "Go"
+    else:
+        status = "Maybe"
+
     return {
-        "home": "Mirrormont, WA",
-        "best_area": "Index",
-        "drive_time": 1.4,
-        "best_window": "Today 3–7 PM",
-        "dry_score": 82,
-        "temperature": 58,
-        "humidity": 60,
-        "dew_point": 45,
-        "rain": 0,
-        "wind": 4,
-        "signal_summary": "Conditions look good for climbing.",
-        "alternates": ["Leavenworth", "Tieton"]
+        **area,
+        "temperature": temperature,
+        "humidity": humidity,
+        "rain": rain,
+        "dry_score": int(dry_score),
+        "status": status,
+        "updated": datetime.utcnow().isoformat(),
+    }
+
+
+@app.get("/conditions")
+def get_conditions():
+    results = [generate_conditions(a) for a in AREAS]
+
+    results.sort(key=lambda x: x["dry_score"], reverse=True)
+
+    best = results[0]
+    alternates = results[1:4]
+
+    return {
+        "best_area": best,
+        "alternates": alternates,
+        "updated": datetime.utcnow().isoformat(),
     }
