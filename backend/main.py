@@ -917,4 +917,19 @@ def get_crags():
         {"name": "Tieton", "lat": 46.7326, "lon": -121.0706, "style": "sport"},
         {"name": "Exit 38", "lat": 47.4357, "lon": -121.7015, "style": "sport"},
         {"name": "Vantage", "lat": 46.9465, "lon": -119.9870, "style": "sport"},
+    ]# health endpoint
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+# crag list endpoint
+@app.get("/api/crags")
+def get_crags():
+    return [
+        {"name": "Index", "lat": 47.8106, "lon": -121.5537, "style": "trad"},
+        {"name": "Leavenworth", "lat": 47.5962, "lon": -120.6615, "style": "sport"},
+        {"name": "Tieton", "lat": 46.7326, "lon": -121.0706, "style": "sport"},
+        {"name": "Exit 38", "lat": 47.4357, "lon": -121.7015, "style": "sport"},
+        {"name": "Vantage", "lat": 46.9465, "lon": -119.9870, "style": "sport"},
     ]
