@@ -173,6 +173,15 @@ async function fetchCrags() {
   return data;
 }
 
+// Small helper so a parallel batch fails gracefully one-by-one instead of
+// the whole batch dying when a single request errors out (e.g. Open-Meteo 429).
+function settle(promise) {
+  return promise.then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, error })
+  );
+}
+
 async function fetchCragWeather(crag) {
   const cacheKey = `cragWeather:${crag.name}`;
   const cached = getCache(cacheKey);
@@ -305,7 +314,18 @@ function App() {
           geocodeHome(homeBase),
         ]);
 
-        const weather = (await Promise.all(crags.map(fetchCragWeather))).filter(Boolean);
+        // Fetch weather for each crag, but don't let one failure (e.g. 429
+        // from Open-Meteo) wipe out the whole batch. Keep whatever succeeds.
+        const settled = await Promise.all(
+          crags.map((crag) => settle(fetchCragWeather(crag)))
+        );
+        const weather = settled
+          .filter((result) => result.ok && result.value)
+          .map((result) => result.value);
+
+        if (weather.length === 0) {
+          throw new Error("All weather requests failed");
+        }
 
         const scored = await fetchJson(`${API_BASE}/api/score`, {
           method: "POST",
