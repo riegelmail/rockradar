@@ -11,7 +11,8 @@ import vantagePhoto from "./assets/crags/vantage-frenchman-coulee.jpg";
 
 const API_BASE = "https://rockradar-backend.onrender.com";
 const WEATHER_CACHE_TTL_MS = 25 * 60 * 1000;
-const FEEDBACK_URL = "https://forms.gle/REPLACE_ME";
+const FEEDBACK_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSe0vPydbp7trY2-2SLmEkKt20pmFosd7CUlosIi3tYv0VL0PA/viewform?usp=header";
 
 const cragPhotos = {
   "Index – River Boulders": indexRiverBouldersPhoto,
