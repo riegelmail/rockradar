@@ -9,7 +9,7 @@ import leavenworthPhoto from "./assets/crags/leavenworth-icicle-canyon.jpg";
 import tietonPhoto from "./assets/crags/tieton-the-bend.jpg";
 import vantagePhoto from "./assets/crags/vantage-frenchman-coulee.jpg";
 
-const API_BASE = "https://rockradar-backend.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://rockradar-backend.onrender.com";
 const WEATHER_CACHE_TTL_MS = 25 * 60 * 1000;
 const FEEDBACK_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSe0vPydbp7trY2-2SLmEkKt20pmFosd7CUlosIi3tYv0VL0PA/viewform?usp=header";
@@ -183,6 +183,37 @@ function settle(promise) {
   );
 }
 
+// How many days of history to pull back so we can measure a real
+// "days since last measurable rain" instead of guessing from a 24h window.
+const RAIN_HISTORY_DAYS = 7;
+const MEASURABLE_RAIN_MM = 1.0;
+
+// Open-Meteo's hourly/daily arrays span [past_days .. forecast_days] with
+// "now" sitting in the middle, not at the end — so slicing from the end of
+// the array grabs the tail of the forecast, not the trailing 24h/today.
+function computeRain24h(hourlyTimes, hourlyPrecip, nowTime) {
+  const nowIndex = hourlyTimes.indexOf(nowTime);
+  const window =
+    nowIndex >= 0
+      ? hourlyPrecip.slice(Math.max(0, nowIndex - 23), nowIndex + 1)
+      : hourlyPrecip.slice(-24);
+  return window.reduce((sum, n) => sum + Number(n || 0), 0);
+}
+
+function computeDaysSinceRain(dailyPrecip, todayIndex) {
+  if (todayIndex == null || todayIndex < 0) {
+    return { days: null, capped: false };
+  }
+  for (let i = todayIndex - 1; i >= 0; i--) {
+    if (Number(dailyPrecip[i] || 0) >= MEASURABLE_RAIN_MM) {
+      return { days: todayIndex - i, capped: false };
+    }
+  }
+  // No measurable rain anywhere in the requested history window — report
+  // the window size as a (conservative) lower bound rather than guessing.
+  return { days: todayIndex, capped: true };
+}
+
 async function fetchCragWeather(crag) {
   const cacheKey = `cragWeather:${crag.name}`;
   const cached = getCache(cacheKey);
@@ -196,7 +227,7 @@ async function fetchCragWeather(crag) {
     "temperature_2m,wind_speed_10m,precipitation,relative_humidity_2m,dew_point_2m"
   );
   url.searchParams.set("hourly", "precipitation");
-  url.searchParams.set("past_days", "1");
+  url.searchParams.set("past_days", String(RAIN_HISTORY_DAYS));
   url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
   url.searchParams.set("forecast_days", "5");
   url.searchParams.set("timezone", "auto");
@@ -204,8 +235,16 @@ async function fetchCragWeather(crag) {
   const data = await fetchJson(url.toString());
 
   const current = data.current || {};
+  const hourlyTimes = data.hourly?.time || [];
   const hourlyPrecip = data.hourly?.precipitation || [];
-  const rain24h = hourlyPrecip.slice(-24).reduce((sum, n) => sum + Number(n || 0), 0);
+  const rain24h = computeRain24h(hourlyTimes, hourlyPrecip, current.time);
+
+  const dailyTimes = data.daily?.time || [];
+  const dailyPrecip = data.daily?.precipitation_sum || [];
+  const todayDateStr = (current.time || "").slice(0, 10);
+  let todayIndex = dailyTimes.indexOf(todayDateStr);
+  if (todayIndex < 0) todayIndex = Math.max(0, dailyTimes.length - 5);
+  const daysSinceRain = computeDaysSinceRain(dailyPrecip, todayIndex);
 
   const normalized = {
     name: crag.name,
@@ -216,16 +255,23 @@ async function fetchCragWeather(crag) {
       wind_mph: kmhToMph(Number(current.wind_speed_10m || 0)),
       rain_now: Number(current.precipitation || 0),
       rain_24h: Math.round(rain24h * 100) / 100,
+      days_since_rain: daysSinceRain.days,
+      days_since_rain_capped: daysSinceRain.capped,
     },
-    forecast: (data.daily?.time || []).map((isoDate, index) => ({
-      day: formatForecastDay(index, isoDate),
-      high_f: cToF(Number(data.daily.temperature_2m_max?.[index] || 0)),
-      low_f: cToF(Number(data.daily.temperature_2m_min?.[index] || 0)),
-      precip: Number(data.daily.precipitation_sum?.[index] || 0),
-      humidity: Number(current.relative_humidity_2m || 60),
-      dew_point_f: cToF(Number(current.dew_point_2m || 0)),
-      wind_mph: kmhToMph(Number(current.wind_speed_10m || 0)),
-    })),
+    // Only today-forward — past_days shifts dailyTimes[0] into history, so
+    // slicing from todayIndex keeps "Today"/"Tomorrow" labels accurate.
+    forecast: dailyTimes.slice(todayIndex).map((isoDate, index) => {
+      const i = todayIndex + index;
+      return {
+        day: formatForecastDay(index, isoDate),
+        high_f: cToF(Number(data.daily.temperature_2m_max?.[i] || 0)),
+        low_f: cToF(Number(data.daily.temperature_2m_min?.[i] || 0)),
+        precip: Number(data.daily.precipitation_sum?.[i] || 0),
+        humidity: Number(current.relative_humidity_2m || 60),
+        dew_point_f: cToF(Number(current.dew_point_2m || 0)),
+        wind_mph: kmhToMph(Number(current.wind_speed_10m || 0)),
+      };
+    }),
   };
 
   setCache(cacheKey, normalized);
@@ -461,7 +507,7 @@ function App() {
                   <div className="crag-top-row">
                     <span className="rank-pill">Top Pick</span>
                     <span className={goStatusClass(data.go_status)}>{data.go_status}</span>
-                    <span className={scoreClass(data.dry_score)}>Score {data.dry_score}</span>
+                    <span className={scoreClass(data.conditions_score)}>Score {data.conditions_score}</span>
                   </div>
 
                   <h2 className="crag-name">{data.best_area}</h2>
@@ -601,7 +647,7 @@ function App() {
                         <div className="crag-top-row">
                           <span className="rank-pill">#{index + 2}</span>
                           <span className={goStatusClass(alt.go_status)}>{alt.go_status}</span>
-                          <span className={scoreClass(alt.dry_score)}>Score {alt.dry_score}</span>
+                          <span className={scoreClass(alt.conditions_score)}>Score {alt.conditions_score}</span>
                         </div>
 
                         <h3>{alt.area}</h3>

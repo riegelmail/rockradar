@@ -1,17 +1,21 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timedelta
 from math import radians, sin, cos, asin, sqrt
 from typing import List, Dict, Any
 
+VALID_STYLES = {"all", "sport", "trad", "bouldering"}
+
 app = FastAPI()
 
+# No cookies/auth are used, so allow_credentials stays False — combining it
+# with a wildcard origin is both unnecessary and a CORS anti-pattern.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -20,6 +24,9 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Names must match the keys in the frontend cragPhotos map exactly
 # (including the en-dash "–" character).
+# sun_exposure (aspect) reconciled from the former backend/crags.json — set by
+# a prior dev pass, not independently verified against real crag orientation.
+# See SUMMARY.md for the caveat.
 CRAGS = [
     {
         "name": "Index – River Boulders",
@@ -29,6 +36,7 @@ CRAGS = [
         "rock_type": "granite",
         "overhang": "Low",
         "wet_sensitive": "high",
+        "sun_exposure": "medium",
         "base_drive_time": 1.2,
     },
     {
@@ -39,6 +47,7 @@ CRAGS = [
         "rock_type": "granite",
         "overhang": "High",
         "wet_sensitive": "low",
+        "sun_exposure": "low",
         "base_drive_time": 1.2,
     },
     {
@@ -49,6 +58,7 @@ CRAGS = [
         "rock_type": "granite",
         "overhang": "Low",
         "wet_sensitive": "medium",
+        "sun_exposure": "medium",
         "base_drive_time": 1.8,
     },
     {
@@ -59,6 +69,7 @@ CRAGS = [
         "rock_type": "basalt",
         "overhang": "Medium",
         "wet_sensitive": "low",
+        "sun_exposure": "high",
         "base_drive_time": 2.6,
     },
     {
@@ -69,6 +80,7 @@ CRAGS = [
         "rock_type": "basalt",
         "overhang": "Medium",
         "wet_sensitive": "low",
+        "sun_exposure": "high",
         "base_drive_time": 2.7,
     },
     {
@@ -79,6 +91,7 @@ CRAGS = [
         "rock_type": "volcanic",
         "overhang": "Medium",
         "wet_sensitive": "medium",
+        "sun_exposure": "low",
         "base_drive_time": 0.6,
     },
 ]
@@ -131,11 +144,14 @@ def score_crag(crag: Dict[str, Any], weather: Dict[str, Any]) -> Dict[str, Any]:
     Conditions priority order:
       1. current rain
       2. forecast rain (next ~48h)
-      3. drying signals (humidity, dew point spread, wind, temp)
+      3. days since last measurable rain (drying trend)
+      4. aspect / sun exposure
+      5. drying signals (humidity, dew point spread, wind, temp)
     """
     current = weather.get("current", {}) or {}
     forecast = weather.get("forecast", []) or []
     wet_mult = wetness_multiplier(crag["wet_sensitive"])
+    sun_exposure = crag.get("sun_exposure")
 
     rain_now = float(current.get("rain_now", 0) or 0)
     rain_24h = float(current.get("rain_24h", 0) or 0)
@@ -143,6 +159,9 @@ def score_crag(crag: Dict[str, Any], weather: Dict[str, Any]) -> Dict[str, Any]:
     dew_point = float(current.get("dew_point_f", 40) or 40)
     temperature = float(current.get("temperature_f", 50) or 50)
     wind_mph = float(current.get("wind_mph", 0) or 0)
+    days_since_rain = current.get("days_since_rain")
+    days_since_rain = int(days_since_rain) if days_since_rain is not None else None
+    days_since_rain_capped = bool(current.get("days_since_rain_capped", False))
 
     score = 100.0
     reasons: List[str] = []
@@ -163,7 +182,33 @@ def score_crag(crag: Dict[str, Any], weather: Dict[str, Any]) -> Dict[str, Any]:
         score -= min(25, near_precip * 5) * wet_mult
         reasons.append(f"{near_precip:.1f} mm rain in next 48h")
 
-    # Priority 3: drying signals
+    # Priority 3: multi-day drying trend, from measured daily rain history
+    # (not the old single-24h-window guess). Only rewards streaks beyond
+    # what rain_24h already penalizes, so the two signals don't double-count.
+    if days_since_rain is not None and days_since_rain >= 2 and rain_now == 0:
+        bonus = min(8, (days_since_rain - 1) * 2)
+        score += bonus
+        if days_since_rain >= 3:
+            suffix = "+" if days_since_rain_capped else ""
+            reasons.append(f"{days_since_rain}{suffix} days since measurable rain")
+
+    # Priority 4: aspect / sun exposure
+    if sun_exposure == "high":
+        if temperature < 65:
+            score += 4
+            reasons.append("Sunny aspect helps drying/warmth")
+        elif temperature > 85:
+            score -= 4
+            reasons.append("Sunny aspect adds heat")
+    elif sun_exposure == "low":
+        recently_wet = rain_now > 0 or rain_24h > 0.5 or (
+            days_since_rain is not None and days_since_rain <= 1
+        )
+        if recently_wet:
+            score -= 4
+            reasons.append("Shaded aspect — slower to dry")
+
+    # Priority 5: drying signals
     if humidity > 75:
         score -= (humidity - 75) * 0.8
         reasons.append(f"Humidity high ({int(humidity)}%)")
@@ -206,11 +251,23 @@ def score_crag(crag: Dict[str, Any], weather: Dict[str, Any]) -> Dict[str, Any]:
     else:
         summary = "Conditions not looking great right now."
 
-    # Drying estimate
+    # Drying estimate. Prefer real days_since_rain (measured from daily rain
+    # history) over the old guess-from-rain_24h heuristic when it's available.
     if rain_now > 0:
         dry_hours = 8 * wet_mult
         confidence = "Low"
         last_rain = "Now"
+    elif days_since_rain is not None:
+        if days_since_rain == 0:
+            dry_hours = max(2, 6 * wet_mult - (wind_mph * 0.2))
+            confidence = "Medium"
+            last_rain = "Earlier today"
+        else:
+            hours_since_rain = days_since_rain * 24
+            dry_hours = max(0, (6 * wet_mult) - hours_since_rain * 0.15 - (wind_mph * 0.2))
+            confidence = "High"
+            suffix = "+" if days_since_rain_capped else ""
+            last_rain = "Yesterday" if days_since_rain == 1 else f"{days_since_rain}{suffix} days ago"
     elif rain_24h > 0.5:
         dry_hours = max(2, 6 * wet_mult - (wind_mph * 0.2))
         confidence = "Medium"
@@ -239,7 +296,7 @@ def score_crag(crag: Dict[str, Any], weather: Dict[str, Any]) -> Dict[str, Any]:
         "rock_type": crag["rock_type"],
         "overhang": crag["overhang"],
         "style": crag["style"],
-        "dry_score": score,
+        "conditions_score": score,
         "go_status": go_status,
         "signal_summary": summary,
         "signal_reasons": reasons[:4],
@@ -261,15 +318,22 @@ def score_crag(crag: Dict[str, Any], weather: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 class HomeIn(BaseModel):
     name: str
-    lat: float
-    lon: float
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
 
 
 class ScoreIn(BaseModel):
     home: HomeIn
-    max_hours: float
+    max_hours: float = Field(gt=0, le=24)
     style: str = "all"
     weather: List[Dict[str, Any]]
+
+    @field_validator("style")
+    @classmethod
+    def validate_style(cls, value: str) -> str:
+        if value not in VALID_STYLES:
+            raise ValueError(f"style must be one of {sorted(VALID_STYLES)}")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +349,7 @@ def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:
         "home": home_name,
         "best_area": "Nothing worth the drive in range.",
         "drive_time": 0,
-        "dry_score": 0,
+        "conditions_score": 0,
         "go_status": "No Go",
         "signal_summary": reason,
         "signal_reasons": [],
@@ -308,7 +372,10 @@ def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:
 
 @app.post("/api/score")
 def post_score(body: ScoreIn):
-    home = body.home.dict()
+    if not body.weather:
+        raise HTTPException(status_code=400, detail="weather list must not be empty")
+
+    home = body.home.model_dump()
     weather_by_name = {w.get("name"): w for w in body.weather}
 
     scored: List[Dict[str, Any]] = []
@@ -321,18 +388,31 @@ def post_score(body: ScoreIn):
         w = weather_by_name.get(crag["name"])
         if not w:
             continue
-        entry = score_crag(crag, w)
+        try:
+            entry = score_crag(crag, w)
+        except (TypeError, ValueError):
+            # Malformed weather payload for this one crag — skip it rather
+            # than fail the whole request.
+            continue
         entry["drive_time"] = drive_time
+        entry["_active_rain"] = float((w.get("current") or {}).get("rain_now", 0) or 0) > 0.05
         scored.append(entry)
 
-    scored.sort(key=lambda x: (x["dry_score"], -x["drive_time"]), reverse=True)
+    scored.sort(key=lambda x: (x["conditions_score"], -x["drive_time"]), reverse=True)
 
     if not scored:
         return _nothing_worth_driving(
             home["name"], "Try widening drive time or changing the style."
         )
 
-    worthwhile = [s for s in scored if s["go_status"] != "No Go" or s["dry_score"] >= 35]
+    # A currently-raining crag is never worth recommending, no matter how
+    # high its secondary signals push the score — that would contradict the
+    # Go/No-Go promise (a "No Go" crag should never surface as the top pick).
+    worthwhile = [
+        s
+        for s in scored
+        if not s["_active_rain"] and (s["go_status"] != "No Go" or s["conditions_score"] >= 35)
+    ]
     if not worthwhile:
         return _nothing_worth_driving(
             home["name"], "Everything nearby is wet. Pick a gym today."
@@ -340,6 +420,8 @@ def post_score(body: ScoreIn):
 
     best = worthwhile[0]
     alternates = worthwhile[1:4]
+    for entry in [best, *alternates]:
+        entry.pop("_active_rain", None)
 
     return {
         "home": home["name"],
@@ -347,7 +429,7 @@ def post_score(body: ScoreIn):
         "drive_time": best["drive_time"],
         "rock_type": best["rock_type"],
         "overhang": best["overhang"],
-        "dry_score": best["dry_score"],
+        "conditions_score": best["conditions_score"],
         "go_status": best["go_status"],
         "signal_summary": best["signal_summary"],
         "signal_reasons": best["signal_reasons"],
