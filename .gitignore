@@ -4,6 +4,7 @@
 # Python
 backend/venv/
 backend/__pycache__/
+backend/.pytest_cache/
 *.pyc
 
 # Node
