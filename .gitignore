@@ -17,3 +17,4 @@ frontend/index.html.txt
 # Env files
 .env
 .env.*
+!.env.example

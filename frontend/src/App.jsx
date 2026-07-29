@@ -9,7 +9,8 @@ import leavenworthPhoto from "./assets/crags/leavenworth-icicle-canyon.jpg";
 import tietonPhoto from "./assets/crags/tieton-the-bend.jpg";
 import vantagePhoto from "./assets/crags/vantage-frenchman-coulee.jpg";
 
-const API_BASE = "https://rockradar-backend.onrender.com";
+const API_BASE =
+  import.meta.env.VITE_API_BASE || "https://rockradar-backend.onrender.com";
 const WEATHER_CACHE_TTL_MS = 25 * 60 * 1000;
 const FEEDBACK_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSe0vPydbp7trY2-2SLmEkKt20pmFosd7CUlosIi3tYv0VL0PA/viewform?usp=header";
@@ -99,7 +100,7 @@ function formatForecastDay(index, isoDate) {
   );
 }
 
-function scoreClass(score) {
+function conditionsScoreClass(score) {
   if (score >= 85) return "score-pill score-green";
   if (score >= 65) return "score-pill score-yellow";
   return "score-pill score-red";
@@ -183,6 +184,44 @@ function settle(promise) {
   );
 }
 
+// RAIN_HISTORY_DAYS controls how far back we look to find the last
+// measurable rain. Open-Meteo returns hourly data chronologically
+// (oldest -> newest), with `current.time` marking "now" inside that range.
+const RAIN_HISTORY_DAYS = 7;
+const MEASURABLE_RAIN_MM = 0.1;
+
+function findNowIndex(hourlyTimes, currentTimeIso) {
+  if (!hourlyTimes?.length) return -1;
+  if (currentTimeIso) {
+    const exact = hourlyTimes.indexOf(currentTimeIso);
+    if (exact !== -1) return exact;
+    const nowMs = Date.parse(currentTimeIso);
+    const idx = hourlyTimes.findIndex((t) => Date.parse(t) >= nowMs);
+    if (idx !== -1) return idx;
+  }
+  return hourlyTimes.length - 1;
+}
+
+function computeRainHistory(hourlyTimes, hourlyPrecip, currentTimeIso) {
+  const nowIndex = findNowIndex(hourlyTimes, currentTimeIso);
+  if (nowIndex === -1) return { rain24h: 0, daysSinceRain: null };
+
+  const past24 = hourlyPrecip.slice(Math.max(0, nowIndex - 23), nowIndex + 1);
+  const rain24h = past24.reduce((sum, n) => sum + Number(n || 0), 0);
+
+  let daysSinceRain = null;
+  const nowMs = Date.parse(hourlyTimes[nowIndex]);
+  for (let i = nowIndex; i >= 0; i--) {
+    if (Number(hourlyPrecip[i] || 0) >= MEASURABLE_RAIN_MM) {
+      const hoursSince = (nowMs - Date.parse(hourlyTimes[i])) / (1000 * 60 * 60);
+      daysSinceRain = Math.max(0, Math.round((hoursSince / 24) * 10) / 10);
+      break;
+    }
+  }
+
+  return { rain24h: Math.round(rain24h * 100) / 100, daysSinceRain };
+}
+
 async function fetchCragWeather(crag) {
   const cacheKey = `cragWeather:${crag.name}`;
   const cached = getCache(cacheKey);
@@ -196,7 +235,7 @@ async function fetchCragWeather(crag) {
     "temperature_2m,wind_speed_10m,precipitation,relative_humidity_2m,dew_point_2m"
   );
   url.searchParams.set("hourly", "precipitation");
-  url.searchParams.set("past_days", "1");
+  url.searchParams.set("past_days", String(RAIN_HISTORY_DAYS));
   url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
   url.searchParams.set("forecast_days", "5");
   url.searchParams.set("timezone", "auto");
@@ -204,8 +243,13 @@ async function fetchCragWeather(crag) {
   const data = await fetchJson(url.toString());
 
   const current = data.current || {};
+  const hourlyTimes = data.hourly?.time || [];
   const hourlyPrecip = data.hourly?.precipitation || [];
-  const rain24h = hourlyPrecip.slice(-24).reduce((sum, n) => sum + Number(n || 0), 0);
+  const { rain24h, daysSinceRain } = computeRainHistory(
+    hourlyTimes,
+    hourlyPrecip,
+    current.time
+  );
 
   const normalized = {
     name: crag.name,
@@ -215,7 +259,8 @@ async function fetchCragWeather(crag) {
       dew_point_f: cToF(Number(current.dew_point_2m || 0)),
       wind_mph: kmhToMph(Number(current.wind_speed_10m || 0)),
       rain_now: Number(current.precipitation || 0),
-      rain_24h: Math.round(rain24h * 100) / 100,
+      rain_24h: rain24h,
+      days_since_rain: daysSinceRain,
     },
     forecast: (data.daily?.time || []).map((isoDate, index) => ({
       day: formatForecastDay(index, isoDate),
@@ -461,7 +506,9 @@ function App() {
                   <div className="crag-top-row">
                     <span className="rank-pill">Top Pick</span>
                     <span className={goStatusClass(data.go_status)}>{data.go_status}</span>
-                    <span className={scoreClass(data.dry_score)}>Score {data.dry_score}</span>
+                    <span className={conditionsScoreClass(data.conditions_score)}>
+                      Score {data.conditions_score}
+                    </span>
                   </div>
 
                   <h2 className="crag-name">{data.best_area}</h2>
@@ -601,7 +648,9 @@ function App() {
                         <div className="crag-top-row">
                           <span className="rank-pill">#{index + 2}</span>
                           <span className={goStatusClass(alt.go_status)}>{alt.go_status}</span>
-                          <span className={scoreClass(alt.dry_score)}>Score {alt.dry_score}</span>
+                          <span className={conditionsScoreClass(alt.conditions_score)}>
+                          Score {alt.conditions_score}
+                        </span>
                         </div>
 
                         <h3>{alt.area}</h3>
