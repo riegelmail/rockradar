@@ -1,14 +1,24 @@
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timedelta
 from math import radians, sin, cos, asin, sqrt
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 VALID_STYLES = {"all", "sport", "trad", "bouldering"}
-# "Rest of the US" isn't in CRAGS yet — the frontend shows it as a disabled
-# "coming soon" region rather than sending it here.
-VALID_REGIONS = {"pnw", "bc"}
+
+# OpenBeta's public climbing database (openbeta.io) — used to find crags
+# anywhere near a user's home instead of maintaining a fixed, hand-curated
+# region list. Their cragsNear query hard-caps maxDistance server-side at
+# 325,000m (~202 mi); we ask for a bit under that as a safety margin. This
+# is well short of the "500 mile radius" originally floated for BC, but it's
+# the real ceiling of the free public API — a same-day driving radius is a
+# reasonable place to land anyway.
+OPENBETA_API_URL = "https://api.openbeta.io"
+MAX_RADIUS_MILES = 200
+MAX_RADIUS_METERS = int(MAX_RADIUS_MILES * 1609.34)
+OPENBETA_TIMEOUT_S = 8.0
 
 app = FastAPI()
 
@@ -41,7 +51,6 @@ CRAGS = [
         "wet_sensitive": "high",
         "sun_exposure": "medium",
         "base_drive_time": 1.2,
-        "region": "pnw",
     },
     {
         "name": "Index – Overhung / Hagakure-ish",
@@ -53,7 +62,6 @@ CRAGS = [
         "wet_sensitive": "low",
         "sun_exposure": "low",
         "base_drive_time": 1.2,
-        "region": "pnw",
     },
     {
         "name": "Leavenworth – Icicle Canyon",
@@ -65,7 +73,6 @@ CRAGS = [
         "wet_sensitive": "medium",
         "sun_exposure": "medium",
         "base_drive_time": 1.8,
-        "region": "pnw",
     },
     {
         "name": "Tieton – The Bend",
@@ -77,7 +84,6 @@ CRAGS = [
         "wet_sensitive": "low",
         "sun_exposure": "high",
         "base_drive_time": 2.6,
-        "region": "pnw",
     },
     {
         "name": "Vantage – Frenchman Coulee",
@@ -89,7 +95,6 @@ CRAGS = [
         "wet_sensitive": "low",
         "sun_exposure": "high",
         "base_drive_time": 2.7,
-        "region": "pnw",
     },
     {
         "name": "Exit 38 – North Bend",
@@ -101,7 +106,6 @@ CRAGS = [
         "wet_sensitive": "medium",
         "sun_exposure": "low",
         "base_drive_time": 0.6,
-        "region": "pnw",
     },
     # British Columbia region — base_drive_time is a hand estimate from
     # BASE_HOME (~4.8-4.9 hrs via I-5 + Sea-to-Sky Hwy), not measured the
@@ -118,7 +122,6 @@ CRAGS = [
         "wet_sensitive": "medium",
         "sun_exposure": "high",
         "base_drive_time": 4.8,
-        "region": "bc",
     },
     {
         "name": "Squamish – Smoke Bluffs",
@@ -130,7 +133,6 @@ CRAGS = [
         "wet_sensitive": "medium",
         "sun_exposure": "medium",
         "base_drive_time": 4.8,
-        "region": "bc",
     },
     {
         "name": "Squamish – Grand Wall Boulders",
@@ -142,7 +144,6 @@ CRAGS = [
         "wet_sensitive": "high",
         "sun_exposure": "low",
         "base_drive_time": 4.9,
-        "region": "bc",
     },
 ]
 
@@ -162,14 +163,23 @@ def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float
 
 
 def estimate_drive_time(home: Dict[str, float], crag: Dict[str, Any]) -> float:
-    """Scale the crag's base drive time by the user's actual home distance."""
+    """Scale the crag's base drive time by the user's actual home distance.
+
+    Crags with no calibrated base_drive_time (anything pulled live from
+    OpenBeta rather than hand-curated) fall back to a flat average-speed
+    estimate instead — there's no known reference drive time to scale from.
+    """
+    home_dist = haversine_miles(home["lat"], home["lon"], crag["lat"], crag["lon"])
+    base_drive_time = crag.get("base_drive_time")
+    if base_drive_time is None:
+        return round(home_dist / 45.0, 1)  # ~45mph average, mixed highway/backroad
+
     base_dist = haversine_miles(
         BASE_HOME["lat"], BASE_HOME["lon"], crag["lat"], crag["lon"]
     )
-    home_dist = haversine_miles(home["lat"], home["lon"], crag["lat"], crag["lon"])
     if base_dist < 1:
         return round(home_dist / 50.0, 1)  # ~50mph average
-    scaled = crag["base_drive_time"] * (home_dist / base_dist)
+    scaled = base_drive_time * (home_dist / base_dist)
     return round(max(0.1, scaled), 1)
 
 
@@ -376,7 +386,6 @@ class ScoreIn(BaseModel):
     home: HomeIn
     max_hours: float = Field(gt=0, le=24)
     style: str = "all"
-    region: str = "pnw"
     weather: List[Dict[str, Any]]
 
     @field_validator("style")
@@ -386,22 +395,115 @@ class ScoreIn(BaseModel):
             raise ValueError(f"style must be one of {sorted(VALID_STYLES)}")
         return value
 
-    @field_validator("region")
-    @classmethod
-    def validate_region(cls, value: str) -> str:
-        if value not in VALID_REGIONS:
-            raise ValueError(f"region must be one of {sorted(VALID_REGIONS)}")
-        return value
+
+# ---------------------------------------------------------------------------
+# Live crag discovery (OpenBeta) — replaces the old fixed-region model.
+# Instead of picking from a named list of regions, we look at whatever's
+# actually near the user's home, curated crags first, OpenBeta filling in
+# the rest.
+# ---------------------------------------------------------------------------
+OPENBETA_CRAGS_NEAR_QUERY = """
+query CragsNear($lat: Float!, $lng: Float!, $maxDistance: Int!) {
+  cragsNear(lnglat: { lat: $lat, lng: $lng }, maxDistance: $maxDistance, includeCrags: true) {
+    crags {
+      area_name
+      metadata {
+        lat
+        lng
+        isBoulder
+      }
+    }
+  }
+}
+"""
+
+
+def fetch_openbeta_crags(lat: float, lon: float) -> List[Dict[str, Any]]:
+    """Live-query OpenBeta for real crags/boulders near (lat, lon).
+
+    OpenBeta doesn't carry the qualitative attributes (wet sensitivity,
+    aspect, overhang) our curated crags have — those were hand-entered per
+    crag. Live results get neutral defaults for those, so their scoring
+    leans more heavily on live weather signals alone. That's a real
+    trade-off for nationwide coverage vs. the old small curated list.
+    """
+    try:
+        resp = httpx.post(
+            OPENBETA_API_URL,
+            json={
+                "query": OPENBETA_CRAGS_NEAR_QUERY,
+                "variables": {"lat": lat, "lng": lon, "maxDistance": MAX_RADIUS_METERS},
+            },
+            timeout=OPENBETA_TIMEOUT_S,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    except (httpx.HTTPError, ValueError):
+        # OpenBeta being slow/down shouldn't take the whole app down with
+        # it — fall back to whatever curated crags are in range.
+        return []
+
+    buckets = (payload.get("data") or {}).get("cragsNear") or []
+    seen_names = set()
+    results: List[Dict[str, Any]] = []
+    for bucket in buckets:
+        for area in bucket.get("crags") or []:
+            name = area.get("area_name")
+            meta = area.get("metadata") or {}
+            crag_lat, crag_lon = meta.get("lat"), meta.get("lng")
+            if not name or crag_lat is None or crag_lon is None:
+                continue
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+            results.append(
+                {
+                    "name": name,
+                    "lat": crag_lat,
+                    "lon": crag_lon,
+                    "style": "bouldering" if meta.get("isBoulder") else "mixed",
+                    "rock_type": "unknown",
+                    "overhang": "Medium",
+                    "wet_sensitive": "medium",
+                    "sun_exposure": "medium",
+                    "base_drive_time": None,
+                    "source": "openbeta",
+                }
+            )
+    return results
+
+
+def get_nearby_crags(lat: Optional[float], lon: Optional[float]) -> List[Dict[str, Any]]:
+    """Curated crags within range of (lat, lon), plus live OpenBeta crags
+    filling in everywhere else — deduped so a curated entry always wins
+    over an OpenBeta one within ~0.5 mi of it (same crag, different name).
+    """
+    if lat is None or lon is None:
+        return CRAGS
+
+    curated_in_range = [
+        c for c in CRAGS if haversine_miles(lat, lon, c["lat"], c["lon"]) <= MAX_RADIUS_MILES
+    ]
+    live = fetch_openbeta_crags(lat, lon)
+    live_deduped = [
+        c
+        for c in live
+        if not any(
+            haversine_miles(c["lat"], c["lon"], curated["lat"], curated["lon"]) < 0.5
+            for curated in curated_in_range
+        )
+    ]
+    return curated_in_range + live_deduped
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/api/crags")
-def get_crags(region: str | None = None):
-    if region is not None and region not in VALID_REGIONS:
-        raise HTTPException(status_code=400, detail=f"region must be one of {sorted(VALID_REGIONS)}")
-    crags = CRAGS if region is None else [c for c in CRAGS if c["region"] == region]
+def get_crags(lat: float | None = None, lon: float | None = None):
+    if (lat is None) != (lon is None):
+        raise HTTPException(status_code=400, detail="lat and lon must be provided together")
+    crags = get_nearby_crags(lat, lon)
     return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
 
 
@@ -440,10 +542,10 @@ def post_score(body: ScoreIn):
     weather_by_name = {w.get("name"): w for w in body.weather}
 
     scored: List[Dict[str, Any]] = []
-    for crag in CRAGS:
-        if crag["region"] != body.region:
-            continue
-        if body.style != "all" and crag["style"] != body.style:
+    for crag in get_nearby_crags(home["lat"], home["lon"]):
+        # "mixed" is OpenBeta's unknown-style placeholder (we don't have
+        # per-route type data from them) — never filtered out by style.
+        if body.style != "all" and crag["style"] not in (body.style, "mixed"):
             continue
         drive_time = estimate_drive_time(home, crag)
         if drive_time > body.max_hours:

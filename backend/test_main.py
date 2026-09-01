@@ -1,8 +1,19 @@
+import pytest
 from fastapi.testclient import TestClient
 
+import main
 from main import CRAGS, app, score_crag
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def no_openbeta_network(monkeypatch):
+    """Keep tests offline/deterministic by default — no test should depend
+    on OpenBeta actually being reachable or on what it currently returns.
+    Tests that want to exercise the live-merge path patch this themselves.
+    """
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [])
 
 
 def make_weather(name, **overrides):
@@ -238,3 +249,135 @@ def test_malformed_weather_for_one_crag_does_not_500():
         json={"home": HOME, "max_hours": 8, "style": "all", "weather": weather},
     )
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Live crag discovery (OpenBeta) — replaces the old fixed-region model.
+# ---------------------------------------------------------------------------
+DENVER = {"name": "Denver, CO", "lat": 39.7392, "lon": -104.9903}
+
+
+def test_crags_without_lat_lon_returns_curated_list_unfiltered():
+    res = client.get("/api/crags")
+    assert res.status_code == 200
+    assert len(res.json()) == len(CRAGS)
+
+
+def test_crags_requires_lat_and_lon_together():
+    res = client.get("/api/crags", params={"lat": 47.6})
+    assert res.status_code == 400
+
+
+def test_crags_near_home_far_from_curated_list_returns_only_live_results(monkeypatch):
+    fake_live = [
+        {
+            "name": "Clear Creek Canyon",
+            "lat": 39.7,
+            "lon": -105.3,
+            "style": "mixed",
+            "rock_type": "unknown",
+            "overhang": "Medium",
+            "wet_sensitive": "medium",
+            "sun_exposure": "medium",
+            "base_drive_time": None,
+            "source": "openbeta",
+        }
+    ]
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: fake_live)
+
+    res = client.get("/api/crags", params={"lat": DENVER["lat"], "lon": DENVER["lon"]})
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == 1
+    assert data[0]["name"] == "Clear Creek Canyon"
+
+
+def test_crags_dedupes_live_result_close_to_a_curated_crag(monkeypatch):
+    curated = CRAGS[0]
+    near_duplicate = [
+        {
+            "name": "Some Other Name For The Same Spot",
+            "lat": curated["lat"] + 0.001,
+            "lon": curated["lon"] + 0.001,
+            "style": "mixed",
+            "rock_type": "unknown",
+            "overhang": "Medium",
+            "wet_sensitive": "medium",
+            "sun_exposure": "medium",
+            "base_drive_time": None,
+            "source": "openbeta",
+        }
+    ]
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: near_duplicate)
+
+    res = client.get("/api/crags", params={"lat": HOME["lat"], "lon": HOME["lon"]})
+    names = {c["name"] for c in res.json()}
+    assert "Some Other Name For The Same Spot" not in names
+    assert curated["name"] in names
+
+
+def test_score_includes_live_openbeta_crag_when_in_range(monkeypatch):
+    live_crag = {
+        "name": "Clear Creek Canyon",
+        "lat": DENVER["lat"] + 0.2,
+        "lon": DENVER["lon"] + 0.2,
+        "style": "mixed",
+        "rock_type": "unknown",
+        "overhang": "Medium",
+        "wet_sensitive": "medium",
+        "sun_exposure": "medium",
+        "base_drive_time": None,
+        "source": "openbeta",
+    }
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [live_crag])
+
+    res = client.post(
+        "/api/score",
+        json={
+            "home": DENVER,
+            "max_hours": 8,
+            "style": "all",
+            "weather": [make_weather("Clear Creek Canyon")],
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["best_area"] == "Clear Creek Canyon"
+
+
+def test_score_style_filter_still_includes_openbeta_mixed_crags(monkeypatch):
+    live_crag = {
+        "name": "Clear Creek Canyon",
+        "lat": DENVER["lat"] + 0.2,
+        "lon": DENVER["lon"] + 0.2,
+        "style": "mixed",
+        "rock_type": "unknown",
+        "overhang": "Medium",
+        "wet_sensitive": "medium",
+        "sun_exposure": "medium",
+        "base_drive_time": None,
+        "source": "openbeta",
+    }
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [live_crag])
+
+    res = client.post(
+        "/api/score",
+        json={
+            "home": DENVER,
+            "max_hours": 8,
+            "style": "bouldering",
+            "weather": [make_weather("Clear Creek Canyon")],
+        },
+    )
+    assert res.status_code == 200
+    # "mixed" (OpenBeta's unknown-style placeholder) is never excluded by
+    # a style filter, so this should still surface it.
+    assert res.json()["best_area"] == "Clear Creek Canyon"
+
+
+def test_fetch_openbeta_crags_returns_empty_list_on_network_error(monkeypatch):
+    def boom(*args, **kwargs):
+        raise main.httpx.ConnectError("no network")
+
+    monkeypatch.setattr(main.httpx, "post", boom)
+    assert main.fetch_openbeta_crags(47.6, -122.3) == []

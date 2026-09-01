@@ -38,37 +38,10 @@ const cragPhotos = {
 
 const fallbackCragPhoto = tietonPhoto;
 
-// Region picker metadata (frontend-only — the backend just knows crag ->
-// region). "Rest of the US" has no backend data yet, so it's marked
-// comingSoon and never queried.
-export const REGIONS = [
-  {
-    id: "pnw",
-    name: "Pacific Northwest",
-    subtitle: "Within a few hours of the Puget Sound",
-    photo: vantagePhoto,
-    comingSoon: false,
-  },
-  {
-    id: "bc",
-    name: "British Columbia",
-    subtitle: "Squamish & the Sea-to-Sky corridor",
-    photo: squamishApronPhoto,
-    comingSoon: false,
-  },
-  {
-    id: "us",
-    name: "Rest of the US",
-    subtitle: "Bishop, Red Rock, the New — one search away",
-    photo: null,
-    comingSoon: true,
-  },
-];
-
-export function getInitialRegion() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("rockradarRegion") || null;
-}
+// How far out we search from home — matches the backend's MAX_RADIUS_MILES
+// (itself capped by what OpenBeta's public API allows per query). Shown in
+// the UI so "what area am I looking at" is never a mystery.
+export const SEARCH_RADIUS_MILES = 200;
 
 function normalizeAreaKey(value) {
   return (value || "")
@@ -185,13 +158,22 @@ export async function geocodeHome(homeQuery) {
   return result;
 }
 
-export async function fetchCrags(region) {
-  const cacheKey = `cragList:${region || "all"}`;
+// Live radius-based lookup — crags near (lat, lon), curated favorites first,
+// OpenBeta filling in everywhere else. Cache key is coarse (rounded to
+// ~1 mile) so re-geocoding the same home text doesn't miss the cache.
+export async function fetchCrags(lat, lon) {
+  const cacheKey =
+    lat != null && lon != null
+      ? `cragList:${lat.toFixed(2)},${lon.toFixed(2)}`
+      : "cragList:all";
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
   const url = new URL(`${API_BASE}/api/crags`);
-  if (region) url.searchParams.set("region", region);
+  if (lat != null && lon != null) {
+    url.searchParams.set("lat", lat);
+    url.searchParams.set("lon", lon);
+  }
 
   const data = await fetchJson(url.toString());
   setCache(cacheKey, data);
@@ -308,13 +290,13 @@ async function fetchCragWeather(crag) {
 // results back to crag coordinates for the map. Behaviour is unchanged from
 // the original App.jsx loadData().
 // ---------------------------------------------------------------------------
-export async function loadConditions({ homeBase, maxHours, style, region }) {
-  const cacheKey = `scoreResult:${region}:${homeBase}:${maxHours}:${style}`;
-
-  const [crags, home] = await Promise.all([
-    fetchCrags(region),
-    geocodeHome(homeBase),
-  ]);
+export async function loadConditions({ homeBase, maxHours, style }) {
+  // Home has to be geocoded before we know what to search near — crags are
+  // no longer a fixed named-region list, they're whatever's live within
+  // range of this specific home.
+  const cacheKey = `scoreResult:${homeBase}:${maxHours}:${style}`;
+  const home = await geocodeHome(homeBase);
+  const crags = await fetchCrags(home.lat, home.lon);
 
   // Fetch weather for each crag, but don't let one failure (e.g. 429
   // from Open-Meteo) wipe out the whole batch. Keep whatever succeeds.
@@ -336,7 +318,6 @@ export async function loadConditions({ homeBase, maxHours, style, region }) {
       home,
       max_hours: maxHours,
       style,
-      region,
       weather,
     }),
   });
@@ -345,6 +326,6 @@ export async function loadConditions({ homeBase, maxHours, style, region }) {
   return { data: scored, crags, home };
 }
 
-export function getScoreCache({ homeBase, maxHours, style, region }) {
-  return getCache(`scoreResult:${region}:${homeBase}:${maxHours}:${style}`);
+export function getScoreCache({ homeBase, maxHours, style }) {
+  return getCache(`scoreResult:${homeBase}:${maxHours}:${style}`);
 }

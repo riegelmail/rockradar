@@ -8,15 +8,8 @@ import MapView from "./components/MapView";
 import ListView from "./components/ListView";
 import SavedView from "./components/SavedView";
 import ProfileView from "./components/ProfileView";
-import RegionScreen from "./components/RegionScreen";
 
-import {
-  loadConditions,
-  getScoreCache,
-  getInitialHome,
-  getInitialRegion,
-  REGIONS,
-} from "./lib/conditions";
+import { loadConditions, getScoreCache, getInitialHome } from "./lib/conditions";
 
 const TAB_TITLES = {
   map: "Map",
@@ -26,7 +19,6 @@ const TAB_TITLES = {
 };
 
 export default function App() {
-  const [region, setRegion] = useState(getInitialRegion());
   const [tab, setTab] = useState("map");
 
   const [data, setData] = useState(null);
@@ -41,7 +33,6 @@ export default function App() {
   const [homeBase, setHomeBase] = useState(getInitialHome());
 
   useEffect(() => {
-    if (!region) return;
     let cancelled = false;
 
     async function run() {
@@ -49,14 +40,14 @@ export default function App() {
       setError("");
 
       // Show the last good score instantly while we refresh in the background.
-      const cached = getScoreCache({ homeBase, maxHours, style, region });
+      const cached = getScoreCache({ homeBase, maxHours, style });
       if (cached && !cancelled) {
         setData(cached);
         setLoading(false);
       }
 
       try {
-        const result = await loadConditions({ homeBase, maxHours, style, region });
+        const result = await loadConditions({ homeBase, maxHours, style });
         if (cancelled) return;
         setData(result.data);
         setCrags(result.crags);
@@ -74,33 +65,13 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [region, homeBase, maxHours, style]);
+  }, [homeBase, maxHours, style]);
 
   function applyHome() {
     localStorage.setItem("rockradarHome", homeInput);
     setHomeBase(homeInput);
     setTab("map");
   }
-
-  function selectRegion(id) {
-    localStorage.setItem("rockradarRegion", id);
-    setRegion(id);
-  }
-
-  function switchRegion() {
-    localStorage.removeItem("rockradarRegion");
-    setRegion(null);
-    setData(null);
-    setCrags([]);
-    setHome(null);
-    setTab("map");
-  }
-
-  if (!region) {
-    return <RegionScreen onSelect={selectRegion} />;
-  }
-
-  const regionName = REGIONS.find((r) => r.id === region)?.name || region;
 
   const goStatus =
     data && data.best_area !== "Nothing worth the drive in range."
@@ -150,8 +121,6 @@ export default function App() {
             onHomeInput={setHomeInput}
             onApplyHome={applyHome}
             activeHome={activeHome}
-            regionName={regionName}
-            onSwitchRegion={switchRegion}
           />
         )}
       </main>

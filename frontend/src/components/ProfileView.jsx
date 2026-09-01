@@ -1,38 +1,26 @@
+import { SEARCH_RADIUS_MILES } from "../lib/conditions";
+
 const FEEDBACK_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSe0vPydbp7trY2-2SLmEkKt20pmFosd7CUlosIi3tYv0VL0PA/viewform?usp=header";
 
 // Profile tab. Home base (which every score is measured from) lives here so
 // the Map/List tabs stay focused on conditions. Accounts/personalisation are
-// a later phase — for now this is region + home base + app info.
+// a later phase — for now this is home base + app info. There's no separate
+// "region" to pick any more: crags come from whatever's live within
+// SEARCH_RADIUS_MILES of wherever home is set below.
 export default function ProfileView({
   homeInput,
   onHomeInput,
   onApplyHome,
   activeHome,
-  regionName,
-  onSwitchRegion,
 }) {
   return (
     <div className="profile-view">
       <section className="profile-card">
-        <h2>Region</h2>
-        <p className="profile-help">
-          Crags, map and scoring are all scoped to your region.
-        </p>
-        <div className="profile-region-row">
-          <span className="profile-active">
-            Currently browsing <strong>{regionName}</strong>
-          </span>
-          <button type="button" className="text-link" onClick={onSwitchRegion}>
-            Change region →
-          </button>
-        </div>
-      </section>
-
-      <section className="profile-card">
         <h2>Home base</h2>
         <p className="profile-help">
-          Drive times are measured from here. Enter a zip or city, state.
+          Drive times are measured from here, and we search {SEARCH_RADIUS_MILES}{" "}
+          mi around it for crags — enter a zip or city, state.
         </p>
         <form
           className="home-row"

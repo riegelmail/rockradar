@@ -77,27 +77,47 @@ select {
   flex: 1;
 }
 
-.app-header-title {
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+.app-header-brand {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
 .app-header-home {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   background: none;
   border: none;
   padding: 0;
-  color: var(--muted);
-  font-size: 12px;
   text-align: left;
   cursor: pointer;
   max-width: 100%;
+  overflow: hidden;
+}
+
+.app-header-home-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.app-header-home:hover {
+.app-header-radius {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-header-home:hover .app-header-home-name,
+.app-header-home:hover .app-header-radius {
   color: var(--muted-2);
 }
 
@@ -271,14 +291,6 @@ select {
 
 .text-link:hover {
   color: var(--text);
-}
-
-.profile-region-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 /* =========================================================================
@@ -934,178 +946,6 @@ select {
   border-radius: 10px;
   background: #1f2532;
   animation: skeleton-pulse 1.4s ease-in-out infinite;
-}
-
-/* =========================================================================
-   REGION SCREEN
-   Landing screen shown before a region is picked. Full-bleed hero replaces
-   the old cramped 36px header thumbnail; region cards double as the entry
-   point for scaling past a single drive-time radius.
-   ========================================================================= */
-.region-screen {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.region-hero {
-  position: relative;
-  flex: 0 0 auto;
-  height: 200px;
-  overflow: hidden;
-}
-
-.region-hero img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center 30%;
-}
-
-.region-hero-scrim {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(11, 13, 18, 0.15) 0%,
-    rgba(11, 13, 18, 0.55) 55%,
-    var(--bg) 100%
-  );
-}
-
-.region-hero-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: calc(env(safe-area-inset-top) + 16px) 18px 0;
-}
-
-.region-hero-brand {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(232, 235, 240, 0.85);
-}
-
-.region-hero-bottom {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 16px;
-}
-
-.region-hero-bottom h1 {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: #fff;
-}
-
-.region-hero-bottom p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: rgba(232, 235, 240, 0.75);
-}
-
-.region-list {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 18px 18px calc(env(safe-area-inset-bottom) + 18px);
-}
-
-.region-section-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  margin-bottom: 10px;
-}
-
-.region-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 14px;
-  border-radius: 14px;
-  margin-bottom: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.region-card:hover {
-  border-color: var(--border-2);
-}
-
-.region-card.disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.region-card-photo {
-  width: 72px;
-  height: 72px;
-  border-radius: 12px;
-  object-fit: cover;
-  border: 1px solid var(--border-2);
-  flex-shrink: 0;
-}
-
-.region-card-photo-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-2);
-  border-style: dashed;
-  color: var(--muted);
-}
-
-.region-card-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.region-card-name {
-  font-size: 16px;
-  font-weight: 800;
-}
-
-.region-card-subtitle {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
-.region-card-count {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted-2);
-  margin-top: 8px;
-}
-
-.region-card-soon {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--muted);
-  margin-top: 8px;
-}
-
-.region-card-chevron {
-  flex-shrink: 0;
-  opacity: 0.5;
-  color: var(--muted-2);
 }
 
 /* =========================================================================
