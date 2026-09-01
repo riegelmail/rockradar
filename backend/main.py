@@ -561,6 +561,17 @@ NATIONWIDE_ANCHORS = [
 # means a client-side weather lookup, and a map with thousands of markers
 # stops being useful to look at anyway.
 MAX_NATIONWIDE_CRAGS = 120
+# Bouldering fields fragment into dozens of individually-named micro-areas in
+# OpenBeta (Hueco Tanks, Chattanooga's boulder fields, and Austin/Enchanted
+# Rock all do this) where a single sport/trad crag region doesn't. Without a
+# per-anchor cap, those three alone filled the entire MAX_NATIONWIDE_CRAGS
+# budget before slower anchors' results even came back — the nationwide map
+# had nothing from California, Colorado, Utah, Nevada, Wyoming, Kentucky,
+# West Virginia, New York, or New Hampshire as a result. Capping each
+# anchor's contribution to a fair share guarantees every region gets
+# represented regardless of how granular OpenBeta's data is there or which
+# anchor's request happens to finish first.
+MAX_PER_ANCHOR_NATIONWIDE = max(1, MAX_NATIONWIDE_CRAGS // len(NATIONWIDE_ANCHORS))
 NATIONWIDE_CACHE_TTL_S = 6 * 60 * 60  # 6 hours
 
 _nationwide_cache: Dict[str, Any] = {"crags": None, "fetched_at": 0.0}
@@ -568,10 +579,12 @@ _nationwide_cache: Dict[str, Any] = {"crags": None, "fetched_at": 0.0}
 
 def fetch_nationwide_openbeta_crags() -> List[Dict[str, Any]]:
     """OpenBeta results merged across NATIONWIDE_ANCHORS, deduped by name,
-    capped at MAX_NATIONWIDE_CRAGS, cached for NATIONWIDE_CACHE_TTL_S.
-    Queried in a thread pool so ~16 sequential OpenBeta round trips don't
-    turn into a multi-minute request — total time is bounded by the slowest
-    single anchor, not the sum of all of them.
+    capped per-anchor (see MAX_PER_ANCHOR_NATIONWIDE) so no single region
+    can crowd out the rest, then capped overall at MAX_NATIONWIDE_CRAGS as a
+    backstop. Cached for NATIONWIDE_CACHE_TTL_S. Queried in a thread pool so
+    ~16 sequential OpenBeta round trips don't turn into a multi-minute
+    request — total time is bounded by the slowest single anchor, not the
+    sum of all of them.
     """
     now = time.time()
     cached = _nationwide_cache["crags"]
@@ -590,7 +603,7 @@ def fetch_nationwide_openbeta_crags() -> List[Dict[str, Any]]:
             except Exception:
                 # One bad anchor shouldn't sink the whole nationwide fetch.
                 continue
-            for crag in anchor_crags:
+            for crag in anchor_crags[:MAX_PER_ANCHOR_NATIONWIDE]:
                 if crag["name"] in seen_names:
                     continue
                 seen_names.add(crag["name"])

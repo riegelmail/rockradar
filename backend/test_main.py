@@ -518,16 +518,49 @@ def test_fetch_nationwide_openbeta_crags_dedupes_by_name_across_anchors(monkeypa
     assert len(results) == 1
 
 
-def test_fetch_nationwide_openbeta_crags_caps_total_count(monkeypatch):
+def test_fetch_nationwide_openbeta_crags_caps_each_anchor_contribution(monkeypatch):
+    # Every anchor here returns way more than its fair share — none of them
+    # should get to contribute more than MAX_PER_ANCHOR_NATIONWIDE.
     monkeypatch.setattr(
         main,
         "fetch_openbeta_crags",
-        lambda lat, lon: [_live_crag(f"{lat}-{i}", lat, lon) for i in range(20)],
+        lambda lat, lon: [_live_crag(f"{lat}-{lon}-{i}", lat, lon) for i in range(50)],
     )
 
     results = main.fetch_nationwide_openbeta_crags()
 
-    assert len(results) == main.MAX_NATIONWIDE_CRAGS
+    per_anchor_counts = {}
+    for crag in results:
+        per_anchor_counts[(crag["lat"], crag["lon"])] = (
+            per_anchor_counts.get((crag["lat"], crag["lon"]), 0) + 1
+        )
+    assert per_anchor_counts  # sanity: something came back
+    assert all(count <= main.MAX_PER_ANCHOR_NATIONWIDE for count in per_anchor_counts.values())
+    assert len(results) <= main.MAX_NATIONWIDE_CRAGS
+
+
+def test_fetch_nationwide_openbeta_crags_one_dense_anchor_does_not_crowd_out_others(monkeypatch):
+    # Regression test for the real bug found in production: a few
+    # bouldering-dense anchors (Chattanooga, Austin, Hueco Tanks) fragment
+    # into dozens of micro-named areas each in OpenBeta, which — without a
+    # per-anchor cap — filled the entire nationwide budget before slower
+    # anchors' results (e.g. every California/Colorado/Utah hub) ever came
+    # back, leaving huge swaths of the country with zero pins.
+    dense_anchor = main.NATIONWIDE_ANCHORS[0]
+
+    def fake_fetch(lat, lon):
+        if (lat, lon) == (dense_anchor[1], dense_anchor[2]):
+            return [_live_crag(f"Micro Boulder {i}", lat, lon) for i in range(200)]
+        return [_live_crag(f"Real Crag near {lat:.2f}", lat, lon)]
+
+    monkeypatch.setattr(main, "fetch_openbeta_crags", fake_fetch)
+
+    results = main.fetch_nationwide_openbeta_crags()
+    names = {c["name"] for c in results}
+
+    # Every other anchor still got its one result through.
+    for anchor_name, lat, lon in main.NATIONWIDE_ANCHORS[1:]:
+        assert f"Real Crag near {lat:.2f}" in names, f"missing result for {anchor_name}"
 
 
 def test_fetch_nationwide_openbeta_crags_uses_cache_on_second_call(monkeypatch):

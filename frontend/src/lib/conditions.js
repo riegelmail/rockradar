@@ -228,26 +228,7 @@ function computeDaysSinceRain(dailyPrecip, todayIndex) {
   return { days: todayIndex, capped: true };
 }
 
-async function fetchCragWeather(crag) {
-  const cacheKey = `cragWeather:${crag.name}`;
-  const cached = getCache(cacheKey);
-  if (cached) return cached;
-
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", crag.lat);
-  url.searchParams.set("longitude", crag.lon);
-  url.searchParams.set(
-    "current",
-    "temperature_2m,wind_speed_10m,precipitation,relative_humidity_2m,dew_point_2m"
-  );
-  url.searchParams.set("hourly", "precipitation");
-  url.searchParams.set("past_days", String(RAIN_HISTORY_DAYS));
-  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
-  url.searchParams.set("forecast_days", "5");
-  url.searchParams.set("timezone", "auto");
-
-  const data = await fetchJson(url.toString());
-
+function normalizeWeatherData(crag, data) {
   const current = data.current || {};
   const hourlyTimes = data.hourly?.time || [];
   const hourlyPrecip = data.hourly?.precipitation || [];
@@ -260,7 +241,7 @@ async function fetchCragWeather(crag) {
   if (todayIndex < 0) todayIndex = Math.max(0, dailyTimes.length - 5);
   const daysSinceRain = computeDaysSinceRain(dailyPrecip, todayIndex);
 
-  const normalized = {
+  return {
     name: crag.name,
     current: {
       temperature_f: cToF(Number(current.temperature_2m || 0)),
@@ -287,9 +268,84 @@ async function fetchCragWeather(crag) {
       };
     }),
   };
+}
 
-  setCache(cacheKey, normalized);
-  return normalized;
+function buildWeatherUrl(crags) {
+  const url = new URL("https://api.open-meteo.com/v1/forecast");
+  // Open-Meteo accepts comma-separated lat/lon lists in one request and
+  // returns an array of results in the same order — one round trip for a
+  // whole batch of crags instead of one per crag. With a single crag it
+  // returns a bare object instead of a 1-item array (handled by the caller).
+  url.searchParams.set("latitude", crags.map((c) => c.lat).join(","));
+  url.searchParams.set("longitude", crags.map((c) => c.lon).join(","));
+  url.searchParams.set(
+    "current",
+    "temperature_2m,wind_speed_10m,precipitation,relative_humidity_2m,dew_point_2m"
+  );
+  url.searchParams.set("hourly", "precipitation");
+  url.searchParams.set("past_days", String(RAIN_HISTORY_DAYS));
+  url.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
+  url.searchParams.set("forecast_days", "5");
+  url.searchParams.set("timezone", "auto");
+  return url;
+}
+
+// Kept comfortably under both Open-Meteo's per-request location limits and
+// browser URL-length limits (each lat/lon pair adds ~20 chars to the URL).
+const WEATHER_BATCH_SIZE = 40;
+
+async function fetchWeatherBatch(crags) {
+  if (crags.length === 0) return [];
+  const url = buildWeatherUrl(crags);
+  const raw = await fetchJson(url.toString());
+  const perLocation = Array.isArray(raw) ? raw : [raw];
+  return crags.map((crag, i) => {
+    const normalized = normalizeWeatherData(crag, perLocation[i] || {});
+    setCache(`cragWeather:${crag.name}`, normalized);
+    return normalized;
+  });
+}
+
+// Fetches weather for every crag, using the cache where possible and one
+// batched Open-Meteo request per chunk of uncached crags otherwise — a
+// nationwide-sized list (100+ crags) used to mean 100+ individual requests
+// (slow, and easy to trip Open-Meteo's rate limiting); this cuts that down
+// to a handful. If a whole chunk's batched request fails, that chunk falls
+// back to fetching its crags one at a time so a single bad request doesn't
+// wipe out everything else that would otherwise have succeeded.
+async function fetchAllCragWeather(crags) {
+  const results = [];
+  const toFetch = [];
+  for (const crag of crags) {
+    const cached = getCache(`cragWeather:${crag.name}`);
+    if (cached) {
+      results.push({ ok: true, value: cached });
+    } else {
+      toFetch.push(crag);
+    }
+  }
+
+  const chunks = [];
+  for (let i = 0; i < toFetch.length; i += WEATHER_BATCH_SIZE) {
+    chunks.push(toFetch.slice(i, i + WEATHER_BATCH_SIZE));
+  }
+
+  const chunkOutcomes = await Promise.all(chunks.map((chunk) => settle(fetchWeatherBatch(chunk))));
+  for (let i = 0; i < chunkOutcomes.length; i++) {
+    const outcome = chunkOutcomes[i];
+    if (outcome.ok) {
+      outcome.value.forEach((value) => results.push({ ok: true, value }));
+      continue;
+    }
+    // The batch itself failed (e.g. one malformed coordinate, or a 429) —
+    // retry this chunk's crags individually rather than losing all of them.
+    const individual = await Promise.all(
+      chunks[i].map((crag) => settle(fetchWeatherBatch([crag]).then((r) => r[0])))
+    );
+    results.push(...individual);
+  }
+
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,11 +368,10 @@ export async function loadConditions({ homeBase, maxHours, style }) {
   const home = await geocodeHome(homeBase);
   const crags = await fetchCrags(home.lat, home.lon, nationwide);
 
-  // Fetch weather for each crag, but don't let one failure (e.g. 429
-  // from Open-Meteo) wipe out the whole batch. Keep whatever succeeds.
-  const settled = await Promise.all(
-    crags.map((crag) => settle(fetchCragWeather(crag)))
-  );
+  // Fetch weather for every crag in a handful of batched requests rather
+  // than one request per crag — see fetchAllCragWeather. Don't let one
+  // failure (e.g. a 429 from Open-Meteo) wipe out the whole result either.
+  const settled = await fetchAllCragWeather(crags);
   const weather = settled
     .filter((result) => result.ok && result.value)
     .map((result) => result.value);
