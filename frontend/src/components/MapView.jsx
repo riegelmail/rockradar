@@ -36,12 +36,15 @@ function homeIcon() {
   });
 }
 
-// CARTO dark basemap — OpenStreetMap data, free, no API key — chosen over the
-// stock light OSM raster so the map reads as part of the dark app chrome.
-const TILE_URL =
-  "https://{s}.basemap.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+// Standard OpenStreetMap raster tiles — free, no API key, no rate-limit
+// surprises. We tried CARTO's dark_all basemap first (matches the app's dark
+// chrome better) but its cartocdn.com CDN gets blocked by common ad/privacy
+// blockers and throttles anonymous traffic with 429s, which silently leaves
+// users staring at a blank gray rectangle with pins floating on it — worse
+// than a plain light map. Reliability wins for an MVP.
+const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTR =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 export default function MapView({ data, crags, home, loading, active = true }) {
   const containerRef = useRef(null);
@@ -77,7 +80,6 @@ export default function MapView({ data, crags, home, loading, active = true }) {
 
     L.tileLayer(TILE_URL, {
       attribution: TILE_ATTR,
-      subdomains: "abcd",
       maxZoom: 19,
     }).addTo(map);
 
