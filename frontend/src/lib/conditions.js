@@ -161,16 +161,24 @@ export async function geocodeHome(homeQuery) {
 // Live radius-based lookup — crags near (lat, lon), curated favorites first,
 // OpenBeta filling in everywhere else. Cache key is coarse (rounded to
 // ~1 mile) so re-geocoding the same home text doesn't miss the cache.
-export async function fetchCrags(lat, lon) {
-  const cacheKey =
-    lat != null && lon != null
+//
+// nationwide=true ignores lat/lon entirely and asks the backend for its
+// cached nationwide sweep instead (see main.py's get_nationwide_crags) —
+// used for the "Drive: Any" view, which shows the whole map at once rather
+// than whatever's within range of home.
+export async function fetchCrags(lat, lon, nationwide = false) {
+  const cacheKey = nationwide
+    ? "cragList:nationwide"
+    : lat != null && lon != null
       ? `cragList:${lat.toFixed(2)},${lon.toFixed(2)}`
       : "cragList:all";
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
   const url = new URL(`${API_BASE}/api/crags`);
-  if (lat != null && lon != null) {
+  if (nationwide) {
+    url.searchParams.set("nationwide", "true");
+  } else if (lat != null && lon != null) {
     url.searchParams.set("lat", lat);
     url.searchParams.set("lon", lon);
   }
@@ -291,12 +299,18 @@ async function fetchCragWeather(crag) {
 // the original App.jsx loadData().
 // ---------------------------------------------------------------------------
 export async function loadConditions({ homeBase, maxHours, style }) {
+  // "Any" is the nationwide view — see fetchCrags/get_nationwide_crags.
+  // Every other value is the normal home-radius search.
+  const nationwide = maxHours === "any";
+
   // Home has to be geocoded before we know what to search near — crags are
   // no longer a fixed named-region list, they're whatever's live within
-  // range of this specific home.
+  // range of this specific home. (Still geocoded in nationwide mode too —
+  // drive time per crag is shown relative to home even when it's not used
+  // to filter anything out.)
   const cacheKey = `scoreResult:${homeBase}:${maxHours}:${style}`;
   const home = await geocodeHome(homeBase);
-  const crags = await fetchCrags(home.lat, home.lon);
+  const crags = await fetchCrags(home.lat, home.lon, nationwide);
 
   // Fetch weather for each crag, but don't let one failure (e.g. 429
   // from Open-Meteo) wipe out the whole batch. Keep whatever succeeds.
@@ -316,9 +330,12 @@ export async function loadConditions({ homeBase, maxHours, style }) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       home,
-      max_hours: maxHours,
+      // The backend still requires a real number here even in nationwide
+      // mode (it just ignores it for filtering) — 24 is its own max.
+      max_hours: nationwide ? 24 : maxHours,
       style,
       weather,
+      nationwide,
     }),
   });
 

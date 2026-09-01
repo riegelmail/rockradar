@@ -4,7 +4,7 @@ import { heroPhoto, SEARCH_RADIUS_MILES } from "../lib/conditions";
 // Compact top bar. Home + search radius are the loudest thing here on
 // purpose — with no more named regions, "what area am I looking at" has to
 // be answerable at a glance instead of buried in a drive-time dropdown.
-export default function AppHeader({ title, home, goStatus, onHomeClick }) {
+export default function AppHeader({ title, home, goStatus, onHomeClick, nationwide }) {
   return (
     <header className="app-header">
       <img className="app-header-photo" src={heroPhoto} alt="climbing hand on rock" />
@@ -13,7 +13,7 @@ export default function AppHeader({ title, home, goStatus, onHomeClick }) {
         <button className="app-header-home" onClick={onHomeClick}>
           <span className="app-header-home-name">{home || "Set home"}</span>
           <span className="app-header-radius">
-            within {SEARCH_RADIUS_MILES} mi ›
+            {nationwide ? "all of US/Canada ›" : `within ${SEARCH_RADIUS_MILES} mi ›`}
           </span>
         </button>
       </div>

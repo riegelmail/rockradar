@@ -46,12 +46,19 @@ const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTR =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-export default function MapView({ data, crags, home, loading, active = true }) {
+export default function MapView({ data, crags, home, loading, active = true, nationwide = false }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
   const fittedRef = useRef(false);
   const [selected, setSelected] = useState(null);
+
+  // Switching in/out of nationwide mode changes the pin set from "one
+  // region" to "the whole country" or back — that's exactly the kind of
+  // change that should re-fit the view, unlike an ordinary data refresh.
+  useEffect(() => {
+    fittedRef.current = false;
+  }, [nationwide]);
 
   // Join scored status onto every crag coordinate. Crags the backend dropped
   // (out of range / filtered / actively wet) still get a muted pin so the map

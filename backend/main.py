@@ -1,3 +1,6 @@
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -391,6 +394,11 @@ class ScoreIn(BaseModel):
     max_hours: float = Field(gt=0, le=24)
     style: str = "all"
     weather: List[Dict[str, Any]]
+    # "Any" drive time means "show the whole nationwide map" — a
+    # fundamentally different query (see get_nationwide_crags) rather than
+    # just a big max_hours, so it's its own flag. When True, max_hours is
+    # accepted (Pydantic still requires it) but ignored for filtering.
+    nationwide: bool = False
 
     @field_validator("style")
     @classmethod
@@ -518,13 +526,112 @@ def get_nearby_crags(lat: Optional[float], lon: Optional[float]) -> List[Dict[st
 
 
 # ---------------------------------------------------------------------------
+# Nationwide view ("Drive: Any") — OpenBeta's cragsNear hard-caps its search
+# radius at ~202mi, so there is no single query that covers the country.
+# Instead we fan out from a fixed set of major US/Canada climbing hubs and
+# merge what comes back. This is the same data source and quality filter as
+# the home-radius search, just queried from many points instead of one.
+#
+# Nationwide results are the same for every user regardless of home base, so
+# they're cached process-wide rather than refetched per request — refetching
+# ~16 anchors (each its own OpenBeta round trip) on every page load would be
+# both slow and unnecessarily hard on OpenBeta's free API.
+# ---------------------------------------------------------------------------
+NATIONWIDE_ANCHORS = [
+    ("PNW / Cascades, WA", 47.6062, -122.3321),
+    ("Squamish, BC", 49.7016, -123.1558),
+    ("Bishop / Eastern Sierra, CA", 37.3639, -118.3953),
+    ("Yosemite, CA", 37.8651, -119.5383),
+    ("Joshua Tree, CA", 34.0055, -116.1664),
+    ("Las Vegas / Red Rock, NV", 36.1215, -115.4278),
+    ("Moab / Indian Creek, UT", 38.4813, -109.7284),
+    ("Boulder / Front Range, CO", 39.9894, -105.2747),
+    ("Ten Sleep, WY", 44.0402, -107.4531),
+    ("Hueco Tanks / El Paso, TX", 31.9223, -106.0397),
+    ("Austin / Enchanted Rock, TX", 30.4993, -98.8189),
+    ("Red River Gorge, KY", 37.7889, -83.6772),
+    ("New River Gorge, WV", 38.0651, -81.0778),
+    ("Chattanooga, TN", 35.0456, -85.3097),
+    ("The Gunks, NY", 41.7423, -74.1996),
+    ("North Conway, NH", 44.0583, -71.1284),
+]
+
+# Total pins shown on the nationwide map, across all anchors combined. Kept
+# well below "every OpenBeta area in the country" on purpose — each pin also
+# means a client-side weather lookup, and a map with thousands of markers
+# stops being useful to look at anyway.
+MAX_NATIONWIDE_CRAGS = 120
+NATIONWIDE_CACHE_TTL_S = 6 * 60 * 60  # 6 hours
+
+_nationwide_cache: Dict[str, Any] = {"crags": None, "fetched_at": 0.0}
+
+
+def fetch_nationwide_openbeta_crags() -> List[Dict[str, Any]]:
+    """OpenBeta results merged across NATIONWIDE_ANCHORS, deduped by name,
+    capped at MAX_NATIONWIDE_CRAGS, cached for NATIONWIDE_CACHE_TTL_S.
+    Queried in a thread pool so ~16 sequential OpenBeta round trips don't
+    turn into a multi-minute request — total time is bounded by the slowest
+    single anchor, not the sum of all of them.
+    """
+    now = time.time()
+    cached = _nationwide_cache["crags"]
+    if cached is not None and (now - _nationwide_cache["fetched_at"]) < NATIONWIDE_CACHE_TTL_S:
+        return cached
+
+    seen_names = set()
+    results: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=len(NATIONWIDE_ANCHORS)) as pool:
+        futures = [
+            pool.submit(fetch_openbeta_crags, lat, lon) for _, lat, lon in NATIONWIDE_ANCHORS
+        ]
+        for future in as_completed(futures):
+            try:
+                anchor_crags = future.result()
+            except Exception:
+                # One bad anchor shouldn't sink the whole nationwide fetch.
+                continue
+            for crag in anchor_crags:
+                if crag["name"] in seen_names:
+                    continue
+                seen_names.add(crag["name"])
+                results.append(crag)
+
+    results = results[:MAX_NATIONWIDE_CRAGS]
+
+    # Only cache a real result — an all-anchors-failed run (OpenBeta fully
+    # down) shouldn't get memorized as "there are zero crags" for 6 hours.
+    if results:
+        _nationwide_cache["crags"] = results
+        _nationwide_cache["fetched_at"] = now
+    return results
+
+
+def get_nationwide_crags() -> List[Dict[str, Any]]:
+    """All curated crags, plus the cached nationwide OpenBeta sweep, deduped
+    the same way as get_nearby_crags (curated wins within ~0.5mi)."""
+    live = fetch_nationwide_openbeta_crags()
+    live_deduped = [
+        c
+        for c in live
+        if not any(
+            haversine_miles(c["lat"], c["lon"], curated["lat"], curated["lon"]) < 0.5
+            for curated in CRAGS
+        )
+    ]
+    return CRAGS + live_deduped
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/api/crags")
-def get_crags(lat: float | None = None, lon: float | None = None):
-    if (lat is None) != (lon is None):
-        raise HTTPException(status_code=400, detail="lat and lon must be provided together")
-    crags = get_nearby_crags(lat, lon)
+def get_crags(lat: float | None = None, lon: float | None = None, nationwide: bool = False):
+    if nationwide:
+        crags = get_nationwide_crags()
+    else:
+        if (lat is None) != (lon is None):
+            raise HTTPException(status_code=400, detail="lat and lon must be provided together")
+        crags = get_nearby_crags(lat, lon)
     return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
 
 
@@ -562,14 +669,18 @@ def post_score(body: ScoreIn):
     home = body.home.model_dump()
     weather_by_name = {w.get("name"): w for w in body.weather}
 
+    crag_pool = get_nationwide_crags() if body.nationwide else get_nearby_crags(home["lat"], home["lon"])
+
     scored: List[Dict[str, Any]] = []
-    for crag in get_nearby_crags(home["lat"], home["lon"]):
+    for crag in crag_pool:
         # "mixed" is OpenBeta's unknown-style placeholder (we don't have
         # per-route type data from them) — never filtered out by style.
         if body.style != "all" and crag["style"] not in (body.style, "mixed"):
             continue
         drive_time = estimate_drive_time(home, crag)
-        if drive_time > body.max_hours:
+        # Nationwide mode means "show everything" — drive time is still
+        # computed (and shown) per crag, just never used to exclude one.
+        if not body.nationwide and drive_time > body.max_hours:
             continue
         w = weather_by_name.get(crag["name"])
         if not w:

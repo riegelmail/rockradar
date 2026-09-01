@@ -79,6 +79,7 @@ export default function App() {
       : null;
   const activeHome = data?.home || homeBase;
   const showFilters = tab === "map" || tab === "list";
+  const nationwide = maxHours === "any";
 
   return (
     <div className="app-shell">
@@ -87,6 +88,7 @@ export default function App() {
         home={activeHome}
         goStatus={goStatus}
         onHomeClick={() => setTab("profile")}
+        nationwide={nationwide}
       />
 
       {showFilters && (
@@ -110,6 +112,7 @@ export default function App() {
             home={home}
             loading={loading}
             active={tab === "map"}
+            nationwide={nationwide}
           />
         </div>
 
