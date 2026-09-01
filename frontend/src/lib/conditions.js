@@ -14,6 +14,9 @@ import indexRiverBouldersPhoto from "../assets/crags/index-river-boulders.jpg";
 import leavenworthPhoto from "../assets/crags/leavenworth-icicle-canyon.jpg";
 import tietonPhoto from "../assets/crags/tieton-the-bend.jpg";
 import vantagePhoto from "../assets/crags/vantage-frenchman-coulee.jpg";
+import squamishApronPhoto from "../assets/crags/squamish-grand-wall-apron.jpg";
+import squamishSmokeBluffsPhoto from "../assets/crags/squamish-chek-smoke-bluffs.jpg";
+import squamishBouldersPhoto from "../assets/crags/squamish-grand-wall-boulders.jpg";
 
 export const API_BASE =
   import.meta.env.VITE_API_BASE || "https://rockradar-backend.onrender.com";
@@ -28,9 +31,44 @@ const cragPhotos = {
   "Leavenworth – Icicle Canyon": leavenworthPhoto,
   "Exit 38 – North Bend": exit38Photo,
   "Vantage – Frenchman Coulee": vantagePhoto,
+  "Squamish – Grand Wall / Apron": squamishApronPhoto,
+  "Squamish – Smoke Bluffs": squamishSmokeBluffsPhoto,
+  "Squamish – Grand Wall Boulders": squamishBouldersPhoto,
 };
 
 const fallbackCragPhoto = tietonPhoto;
+
+// Region picker metadata (frontend-only — the backend just knows crag ->
+// region). "Rest of the US" has no backend data yet, so it's marked
+// comingSoon and never queried.
+export const REGIONS = [
+  {
+    id: "pnw",
+    name: "Pacific Northwest",
+    subtitle: "Within a few hours of the Puget Sound",
+    photo: vantagePhoto,
+    comingSoon: false,
+  },
+  {
+    id: "bc",
+    name: "British Columbia",
+    subtitle: "Squamish & the Sea-to-Sky corridor",
+    photo: squamishApronPhoto,
+    comingSoon: false,
+  },
+  {
+    id: "us",
+    name: "Rest of the US",
+    subtitle: "Bishop, Red Rock, the New — one search away",
+    photo: null,
+    comingSoon: true,
+  },
+];
+
+export function getInitialRegion() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("rockradarRegion") || null;
+}
 
 function normalizeAreaKey(value) {
   return (value || "")
@@ -147,12 +185,15 @@ export async function geocodeHome(homeQuery) {
   return result;
 }
 
-export async function fetchCrags() {
-  const cacheKey = "cragList";
+export async function fetchCrags(region) {
+  const cacheKey = `cragList:${region || "all"}`;
   const cached = getCache(cacheKey);
   if (cached) return cached;
 
-  const data = await fetchJson(`${API_BASE}/api/crags`);
+  const url = new URL(`${API_BASE}/api/crags`);
+  if (region) url.searchParams.set("region", region);
+
+  const data = await fetchJson(url.toString());
   setCache(cacheKey, data);
   return data;
 }
@@ -267,11 +308,11 @@ async function fetchCragWeather(crag) {
 // results back to crag coordinates for the map. Behaviour is unchanged from
 // the original App.jsx loadData().
 // ---------------------------------------------------------------------------
-export async function loadConditions({ homeBase, maxHours, style }) {
-  const cacheKey = `scoreResult:${homeBase}:${maxHours}:${style}`;
+export async function loadConditions({ homeBase, maxHours, style, region }) {
+  const cacheKey = `scoreResult:${region}:${homeBase}:${maxHours}:${style}`;
 
   const [crags, home] = await Promise.all([
-    fetchCrags(),
+    fetchCrags(region),
     geocodeHome(homeBase),
   ]);
 
@@ -295,6 +336,7 @@ export async function loadConditions({ homeBase, maxHours, style }) {
       home,
       max_hours: maxHours,
       style,
+      region,
       weather,
     }),
   });
@@ -303,6 +345,6 @@ export async function loadConditions({ homeBase, maxHours, style }) {
   return { data: scored, crags, home };
 }
 
-export function getScoreCache({ homeBase, maxHours, style }) {
-  return getCache(`scoreResult:${homeBase}:${maxHours}:${style}`);
+export function getScoreCache({ homeBase, maxHours, style, region }) {
+  return getCache(`scoreResult:${region}:${homeBase}:${maxHours}:${style}`);
 }

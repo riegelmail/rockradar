@@ -6,6 +6,9 @@ from math import radians, sin, cos, asin, sqrt
 from typing import List, Dict, Any
 
 VALID_STYLES = {"all", "sport", "trad", "bouldering"}
+# "Rest of the US" isn't in CRAGS yet — the frontend shows it as a disabled
+# "coming soon" region rather than sending it here.
+VALID_REGIONS = {"pnw", "bc"}
 
 app = FastAPI()
 
@@ -38,6 +41,7 @@ CRAGS = [
         "wet_sensitive": "high",
         "sun_exposure": "medium",
         "base_drive_time": 1.2,
+        "region": "pnw",
     },
     {
         "name": "Index – Overhung / Hagakure-ish",
@@ -49,6 +53,7 @@ CRAGS = [
         "wet_sensitive": "low",
         "sun_exposure": "low",
         "base_drive_time": 1.2,
+        "region": "pnw",
     },
     {
         "name": "Leavenworth – Icicle Canyon",
@@ -60,6 +65,7 @@ CRAGS = [
         "wet_sensitive": "medium",
         "sun_exposure": "medium",
         "base_drive_time": 1.8,
+        "region": "pnw",
     },
     {
         "name": "Tieton – The Bend",
@@ -71,6 +77,7 @@ CRAGS = [
         "wet_sensitive": "low",
         "sun_exposure": "high",
         "base_drive_time": 2.6,
+        "region": "pnw",
     },
     {
         "name": "Vantage – Frenchman Coulee",
@@ -82,6 +89,7 @@ CRAGS = [
         "wet_sensitive": "low",
         "sun_exposure": "high",
         "base_drive_time": 2.7,
+        "region": "pnw",
     },
     {
         "name": "Exit 38 – North Bend",
@@ -93,6 +101,48 @@ CRAGS = [
         "wet_sensitive": "medium",
         "sun_exposure": "low",
         "base_drive_time": 0.6,
+        "region": "pnw",
+    },
+    # British Columbia region — base_drive_time is a hand estimate from
+    # BASE_HOME (~4.8-4.9 hrs via I-5 + Sea-to-Sky Hwy), not measured the
+    # same way as the WA entries above, and doesn't model border-crossing
+    # wait time. Good enough for MVP; revisit if/when real crag data (e.g.
+    # OpenBeta) replaces this hardcoded list.
+    {
+        "name": "Squamish – Grand Wall / Apron",
+        "lat": 49.6841,
+        "lon": -123.1483,
+        "style": "trad",
+        "rock_type": "granite",
+        "overhang": "Low",
+        "wet_sensitive": "medium",
+        "sun_exposure": "high",
+        "base_drive_time": 4.8,
+        "region": "bc",
+    },
+    {
+        "name": "Squamish – Smoke Bluffs",
+        "lat": 49.7004,
+        "lon": -123.1554,
+        "style": "sport",
+        "rock_type": "granite",
+        "overhang": "Medium",
+        "wet_sensitive": "medium",
+        "sun_exposure": "medium",
+        "base_drive_time": 4.8,
+        "region": "bc",
+    },
+    {
+        "name": "Squamish – Grand Wall Boulders",
+        "lat": 49.6822,
+        "lon": -123.1502,
+        "style": "bouldering",
+        "rock_type": "granite",
+        "overhang": "Medium",
+        "wet_sensitive": "high",
+        "sun_exposure": "low",
+        "base_drive_time": 4.9,
+        "region": "bc",
     },
 ]
 
@@ -326,6 +376,7 @@ class ScoreIn(BaseModel):
     home: HomeIn
     max_hours: float = Field(gt=0, le=24)
     style: str = "all"
+    region: str = "pnw"
     weather: List[Dict[str, Any]]
 
     @field_validator("style")
@@ -335,13 +386,23 @@ class ScoreIn(BaseModel):
             raise ValueError(f"style must be one of {sorted(VALID_STYLES)}")
         return value
 
+    @field_validator("region")
+    @classmethod
+    def validate_region(cls, value: str) -> str:
+        if value not in VALID_REGIONS:
+            raise ValueError(f"region must be one of {sorted(VALID_REGIONS)}")
+        return value
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/api/crags")
-def get_crags():
-    return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in CRAGS]
+def get_crags(region: str | None = None):
+    if region is not None and region not in VALID_REGIONS:
+        raise HTTPException(status_code=400, detail=f"region must be one of {sorted(VALID_REGIONS)}")
+    crags = CRAGS if region is None else [c for c in CRAGS if c["region"] == region]
+    return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
 
 
 def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:
@@ -380,6 +441,8 @@ def post_score(body: ScoreIn):
 
     scored: List[Dict[str, Any]] = []
     for crag in CRAGS:
+        if crag["region"] != body.region:
+            continue
         if body.style != "all" and crag["style"] != body.style:
             continue
         drive_time = estimate_drive_time(home, crag)
