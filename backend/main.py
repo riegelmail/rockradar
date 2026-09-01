@@ -407,6 +407,7 @@ query CragsNear($lat: Float!, $lng: Float!, $maxDistance: Int!) {
   cragsNear(lnglat: { lat: $lat, lng: $lng }, maxDistance: $maxDistance, includeCrags: true) {
     crags {
       area_name
+      totalClimbs
       metadata {
         lat
         lng
@@ -419,10 +420,13 @@ query CragsNear($lat: Float!, $lng: Float!, $maxDistance: Int!) {
 """
 
 # OpenBeta's cragsNear only filters on "is this a leaf area" — that includes
-# every buildering wall, campus gym, and one-off boulder someone logged,
-# not just real crags. Capping to isDestination (OpenBeta's own "this is a
-# notable place people travel to climb" flag) and a hard count limit keeps
-# results to something worth showing on a map and fetching live weather for.
+# every buildering wall, campus gym, and one-off boulder someone logged, not
+# just real crags. isDestination turned out to be too sparse to rely on (a
+# Denver query came back with real destinations like Clear Creek Canyon
+# filtered out along with the noise), so the actual quality gate is
+# totalClimbs — a wall with a couple dozen logged routes reads very
+# differently from a single buildering problem on a campus building.
+MIN_CLIMBS_TO_SHOW = 3
 MAX_LIVE_CRAGS = 40
 
 
@@ -463,7 +467,8 @@ def fetch_openbeta_crags(lat: float, lon: float) -> List[Dict[str, Any]]:
             crag_lat, crag_lon = meta.get("lat"), meta.get("lng")
             if not name or crag_lat is None or crag_lon is None:
                 continue
-            if not meta.get("isDestination"):
+            total_climbs = area.get("totalClimbs") or 0
+            if total_climbs < MIN_CLIMBS_TO_SHOW and not meta.get("isDestination"):
                 continue
             if name in seen_names:
                 continue
@@ -517,6 +522,39 @@ def get_crags(lat: float | None = None, lon: float | None = None):
         raise HTTPException(status_code=400, detail="lat and lon must be provided together")
     crags = get_nearby_crags(lat, lon)
     return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
+
+
+# TEMPORARY — the isDestination-based filter turned out to be too sparse
+# (over-excluded real crags), now replaced with a totalClimbs threshold.
+# Keeping this visible for one more round in case that guess is also off.
+# Remove once /api/crags is confirmed giving sane results for a few spots.
+@app.get("/api/_debug/openbeta")
+def debug_openbeta(lat: float, lon: float):
+    try:
+        resp = httpx.post(
+            OPENBETA_API_URL,
+            json={
+                "query": OPENBETA_CRAGS_NEAR_QUERY,
+                "variables": {"lat": lat, "lng": lon, "maxDistance": MAX_RADIUS_METERS},
+            },
+            timeout=OPENBETA_TIMEOUT_S,
+        )
+        payload = resp.json()
+    except httpx.HTTPError as exc:
+        return {"error": str(exc), "type": type(exc).__name__}
+
+    buckets = (payload.get("data") or {}).get("cragsNear") or []
+    sample = []
+    for bucket in buckets:
+        for area in bucket.get("crags") or []:
+            sample.append(
+                {
+                    "name": area.get("area_name"),
+                    "totalClimbs": area.get("totalClimbs"),
+                    "isDestination": (area.get("metadata") or {}).get("isDestination"),
+                }
+            )
+    return {"total_seen": len(sample), "sample": sample[:30], "raw_errors": payload.get("errors")}
 
 
 def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:

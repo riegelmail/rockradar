@@ -398,27 +398,32 @@ class _FakeResponse:
         return self._payload
 
 
-def _openbeta_area(name, is_destination, is_boulder=False, lat=39.7, lon=-105.2):
+def _openbeta_area(name, total_climbs=0, is_destination=False, is_boulder=False, lat=39.7, lon=-105.2):
     return {
         "area_name": name,
+        "totalClimbs": total_climbs,
         "metadata": {"lat": lat, "lng": lon, "isBoulder": is_boulder, "isDestination": is_destination},
     }
 
 
-def test_fetch_openbeta_crags_filters_out_non_destination_areas(monkeypatch):
+def test_fetch_openbeta_crags_filters_out_low_quality_areas(monkeypatch):
     # OpenBeta's cragsNear only filters on "is a leaf area" -- that includes
     # things like campus buildering walls and gym boulders, not just real
     # crags. This is the actual bug we hit in production: Denver came back
     # with hundreds of results like "Sturm Hall" and "REI Denver Flagship
-    # Store Boulder" mixed in with real destinations.
+    # Store Boulder" mixed in with real crags. isDestination alone turned
+    # out to be too sparse (it excluded real crags too), so the primary
+    # gate is a minimum totalClimbs count, with isDestination as a bonus
+    # signal for areas that are notable despite a low climb count.
     payload = {
         "data": {
             "cragsNear": [
                 {
                     "crags": [
-                        _openbeta_area("Clear Creek Canyon", is_destination=True),
-                        _openbeta_area("Sturm Hall", is_destination=False),
-                        _openbeta_area("REI Denver Flagship Store Boulder", is_destination=False),
+                        _openbeta_area("Clear Creek Canyon", total_climbs=25),
+                        _openbeta_area("Small But Notable Wall", total_climbs=1, is_destination=True),
+                        _openbeta_area("Sturm Hall", total_climbs=1),
+                        _openbeta_area("REI Denver Flagship Store Boulder", total_climbs=0),
                     ]
                 }
             ]
@@ -428,12 +433,12 @@ def test_fetch_openbeta_crags_filters_out_non_destination_areas(monkeypatch):
 
     results = real_fetch_openbeta_crags(39.7, -105.2)
     names = {c["name"] for c in results}
-    assert names == {"Clear Creek Canyon"}
+    assert names == {"Clear Creek Canyon", "Small But Notable Wall"}
 
 
 def test_fetch_openbeta_crags_caps_result_count(monkeypatch):
     many_areas = [
-        _openbeta_area(f"Destination {i}", is_destination=True, lat=39.7 + i * 0.001)
+        _openbeta_area(f"Destination {i}", total_climbs=10, lat=39.7 + i * 0.001)
         for i in range(main.MAX_LIVE_CRAGS + 20)
     ]
     payload = {"data": {"cragsNear": [{"crags": many_areas}]}}
@@ -447,8 +452,8 @@ def test_fetch_openbeta_crags_dedupes_same_area_name_across_buckets(monkeypatch)
     payload = {
         "data": {
             "cragsNear": [
-                {"crags": [_openbeta_area("Clear Creek Canyon", is_destination=True)]},
-                {"crags": [_openbeta_area("Clear Creek Canyon", is_destination=True)]},
+                {"crags": [_openbeta_area("Clear Creek Canyon", total_climbs=25)]},
+                {"crags": [_openbeta_area("Clear Creek Canyon", total_climbs=25)]},
             ]
         }
     }
