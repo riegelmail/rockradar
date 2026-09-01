@@ -12,6 +12,10 @@ export default function FilterBar({ maxHours, style, onMaxHours, onStyle }) {
           <option value="4">≤ 4 hrs</option>
           <option value="6">≤ 6 hrs</option>
           <option value="8">≤ 8 hrs</option>
+          {/* Not truly unlimited — the backend already caps how far it
+              searches (SEARCH_RADIUS_MILES), so this just stops filtering
+              by drive time on top of that. 24 is the backend's own max. */}
+          <option value="24">Any</option>
         </select>
       </label>
 

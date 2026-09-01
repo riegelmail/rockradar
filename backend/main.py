@@ -411,15 +411,23 @@ query CragsNear($lat: Float!, $lng: Float!, $maxDistance: Int!) {
         lat
         lng
         isBoulder
+        isDestination
       }
     }
   }
 }
 """
 
+# OpenBeta's cragsNear only filters on "is this a leaf area" — that includes
+# every buildering wall, campus gym, and one-off boulder someone logged,
+# not just real crags. Capping to isDestination (OpenBeta's own "this is a
+# notable place people travel to climb" flag) and a hard count limit keeps
+# results to something worth showing on a map and fetching live weather for.
+MAX_LIVE_CRAGS = 40
+
 
 def fetch_openbeta_crags(lat: float, lon: float) -> List[Dict[str, Any]]:
-    """Live-query OpenBeta for real crags/boulders near (lat, lon).
+    """Live-query OpenBeta for real crags near (lat, lon).
 
     OpenBeta doesn't carry the qualitative attributes (wet sensitivity,
     aspect, overhang) our curated crags have — those were hand-entered per
@@ -448,10 +456,14 @@ def fetch_openbeta_crags(lat: float, lon: float) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     for bucket in buckets:
         for area in bucket.get("crags") or []:
+            if len(results) >= MAX_LIVE_CRAGS:
+                return results
             name = area.get("area_name")
             meta = area.get("metadata") or {}
             crag_lat, crag_lon = meta.get("lat"), meta.get("lng")
             if not name or crag_lat is None or crag_lon is None:
+                continue
+            if not meta.get("isDestination"):
                 continue
             if name in seen_names:
                 continue
@@ -505,28 +517,6 @@ def get_crags(lat: float | None = None, lon: float | None = None):
         raise HTTPException(status_code=400, detail="lat and lon must be provided together")
     crags = get_nearby_crags(lat, lon)
     return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
-
-
-# TEMPORARY — diagnosing why /api/crags is coming back empty for locations
-# far from the curated list. Shows the raw OpenBeta response/error instead
-# of the normal graceful-fallback-to-[] behavior. Remove once resolved.
-@app.get("/api/_debug/openbeta")
-def debug_openbeta(lat: float, lon: float):
-    try:
-        resp = httpx.post(
-            OPENBETA_API_URL,
-            json={
-                "query": OPENBETA_CRAGS_NEAR_QUERY,
-                "variables": {"lat": lat, "lng": lon, "maxDistance": MAX_RADIUS_METERS},
-            },
-            timeout=OPENBETA_TIMEOUT_S,
-        )
-        return {
-            "status_code": resp.status_code,
-            "body": resp.text[:4000],
-        }
-    except httpx.HTTPError as exc:
-        return {"error": str(exc), "type": type(exc).__name__}
 
 
 def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:

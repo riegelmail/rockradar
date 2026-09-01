@@ -6,6 +6,10 @@ from main import CRAGS, app, score_crag
 
 client = TestClient(app)
 
+# Captured before the autouse fixture below stubs main.fetch_openbeta_crags
+# out — tests exercising the real parsing/filtering logic call this directly.
+real_fetch_openbeta_crags = main.fetch_openbeta_crags
+
 
 @pytest.fixture(autouse=True)
 def no_openbeta_network(monkeypatch):
@@ -381,3 +385,74 @@ def test_fetch_openbeta_crags_returns_empty_list_on_network_error(monkeypatch):
 
     monkeypatch.setattr(main.httpx, "post", boom)
     assert main.fetch_openbeta_crags(47.6, -122.3) == []
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+def _openbeta_area(name, is_destination, is_boulder=False, lat=39.7, lon=-105.2):
+    return {
+        "area_name": name,
+        "metadata": {"lat": lat, "lng": lon, "isBoulder": is_boulder, "isDestination": is_destination},
+    }
+
+
+def test_fetch_openbeta_crags_filters_out_non_destination_areas(monkeypatch):
+    # OpenBeta's cragsNear only filters on "is a leaf area" -- that includes
+    # things like campus buildering walls and gym boulders, not just real
+    # crags. This is the actual bug we hit in production: Denver came back
+    # with hundreds of results like "Sturm Hall" and "REI Denver Flagship
+    # Store Boulder" mixed in with real destinations.
+    payload = {
+        "data": {
+            "cragsNear": [
+                {
+                    "crags": [
+                        _openbeta_area("Clear Creek Canyon", is_destination=True),
+                        _openbeta_area("Sturm Hall", is_destination=False),
+                        _openbeta_area("REI Denver Flagship Store Boulder", is_destination=False),
+                    ]
+                }
+            ]
+        }
+    }
+    monkeypatch.setattr(main.httpx, "post", lambda *a, **kw: _FakeResponse(payload))
+
+    results = real_fetch_openbeta_crags(39.7, -105.2)
+    names = {c["name"] for c in results}
+    assert names == {"Clear Creek Canyon"}
+
+
+def test_fetch_openbeta_crags_caps_result_count(monkeypatch):
+    many_areas = [
+        _openbeta_area(f"Destination {i}", is_destination=True, lat=39.7 + i * 0.001)
+        for i in range(main.MAX_LIVE_CRAGS + 20)
+    ]
+    payload = {"data": {"cragsNear": [{"crags": many_areas}]}}
+    monkeypatch.setattr(main.httpx, "post", lambda *a, **kw: _FakeResponse(payload))
+
+    results = real_fetch_openbeta_crags(39.7, -105.2)
+    assert len(results) == main.MAX_LIVE_CRAGS
+
+
+def test_fetch_openbeta_crags_dedupes_same_area_name_across_buckets(monkeypatch):
+    payload = {
+        "data": {
+            "cragsNear": [
+                {"crags": [_openbeta_area("Clear Creek Canyon", is_destination=True)]},
+                {"crags": [_openbeta_area("Clear Creek Canyon", is_destination=True)]},
+            ]
+        }
+    }
+    monkeypatch.setattr(main.httpx, "post", lambda *a, **kw: _FakeResponse(payload))
+
+    results = real_fetch_openbeta_crags(39.7, -105.2)
+    assert len(results) == 1
