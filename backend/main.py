@@ -442,7 +442,9 @@ MIN_CLIMBS_TO_SHOW = 3
 MAX_LIVE_CRAGS = 40
 
 
-def fetch_openbeta_crags(lat: float, lon: float) -> List[Dict[str, Any]]:
+def fetch_openbeta_crags(
+    lat: float, lon: float, max_distance_m: int = MAX_RADIUS_METERS
+) -> List[Dict[str, Any]]:
     """Live-query OpenBeta for real crags near (lat, lon).
 
     OpenBeta doesn't carry the qualitative attributes (wet sensitivity,
@@ -450,13 +452,21 @@ def fetch_openbeta_crags(lat: float, lon: float) -> List[Dict[str, Any]]:
     crag. Live results get neutral defaults for those, so their scoring
     leans more heavily on live weather signals alone. That's a real
     trade-off for nationwide coverage vs. the old small curated list.
+
+    max_distance_m defaults to the full home-radius search distance, but
+    callers sampling a known dense hub (see NATIONWIDE_ANCHOR_RADIUS_METERS)
+    pass a smaller radius — a 200mi-radius query centered on somewhere like
+    Boulder/Front Range or Bishop pulls in enough area that OpenBeta's own
+    resolver can take longer than our timeout just to build the response,
+    even though the exact same query near a less climbing-dense point
+    answers in a couple seconds.
     """
     try:
         resp = httpx.post(
             OPENBETA_API_URL,
             json={
                 "query": OPENBETA_CRAGS_NEAR_QUERY,
-                "variables": {"lat": lat, "lng": lon, "maxDistance": MAX_RADIUS_METERS},
+                "variables": {"lat": lat, "lng": lon, "maxDistance": max_distance_m},
             },
             timeout=OPENBETA_TIMEOUT_S,
         )
@@ -574,6 +584,18 @@ MAX_NATIONWIDE_CRAGS = 120
 MAX_PER_ANCHOR_NATIONWIDE = max(1, MAX_NATIONWIDE_CRAGS // len(NATIONWIDE_ANCHORS))
 NATIONWIDE_CACHE_TTL_S = 6 * 60 * 60  # 6 hours
 
+# Anchors sample a specific named climbing hub, unlike a home-radius search
+# where the full MAX_RADIUS_MILES is the actual promise made to the user —
+# so anchors ask OpenBeta for a much tighter radius around each hub. This
+# matters for speed as much as relevance: a handful of these hubs (Boulder /
+# Front Range and Bishop in particular) sit in areas so climbing-dense that
+# a full 200mi-radius query around them can take longer for OpenBeta's own
+# resolver to build than our timeout allows, even though the same query
+# against a less dense point answers in a couple seconds. A tighter radius
+# keeps the response small enough to come back reliably.
+NATIONWIDE_ANCHOR_RADIUS_MILES = 60
+NATIONWIDE_ANCHOR_RADIUS_METERS = int(NATIONWIDE_ANCHOR_RADIUS_MILES * 1609.34)
+
 _nationwide_cache: Dict[str, Any] = {"crags": None, "fetched_at": 0.0}
 
 
@@ -595,7 +617,8 @@ def fetch_nationwide_openbeta_crags() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=len(NATIONWIDE_ANCHORS)) as pool:
         futures = [
-            pool.submit(fetch_openbeta_crags, lat, lon) for _, lat, lon in NATIONWIDE_ANCHORS
+            pool.submit(fetch_openbeta_crags, lat, lon, NATIONWIDE_ANCHOR_RADIUS_METERS)
+            for _, lat, lon in NATIONWIDE_ANCHORS
         ]
         for future in as_completed(futures):
             try:

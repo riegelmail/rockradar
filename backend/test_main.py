@@ -17,7 +17,7 @@ def no_openbeta_network(monkeypatch):
     on OpenBeta actually being reachable or on what it currently returns.
     Tests that want to exercise the live-merge path patch this themselves.
     """
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [])
 
 
 @pytest.fixture(autouse=True)
@@ -314,7 +314,7 @@ def test_crags_near_home_far_from_curated_list_returns_only_live_results(monkeyp
             "source": "openbeta",
         }
     ]
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: fake_live)
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: fake_live)
 
     res = client.get("/api/crags", params={"lat": DENVER["lat"], "lon": DENVER["lon"]})
     assert res.status_code == 200
@@ -339,7 +339,7 @@ def test_crags_dedupes_live_result_close_to_a_curated_crag(monkeypatch):
             "source": "openbeta",
         }
     ]
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: near_duplicate)
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: near_duplicate)
 
     res = client.get("/api/crags", params={"lat": HOME["lat"], "lon": HOME["lon"]})
     names = {c["name"] for c in res.json()}
@@ -360,7 +360,7 @@ def test_score_includes_live_openbeta_crag_when_in_range(monkeypatch):
         "base_drive_time": None,
         "source": "openbeta",
     }
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [live_crag])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [live_crag])
 
     res = client.post(
         "/api/score",
@@ -389,7 +389,7 @@ def test_score_style_filter_still_includes_openbeta_mixed_crags(monkeypatch):
         "base_drive_time": None,
         "source": "openbeta",
     }
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [live_crag])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [live_crag])
 
     res = client.post(
         "/api/score",
@@ -495,7 +495,7 @@ def test_fetch_openbeta_crags_dedupes_same_area_name_across_buckets(monkeypatch)
 # of searching from one home point, and skips the max_hours filter entirely.
 # ---------------------------------------------------------------------------
 def test_fetch_nationwide_openbeta_crags_merges_all_anchors(monkeypatch):
-    def fake_fetch(lat, lon):
+    def fake_fetch(lat, lon, max_distance_m=None):
         return [_live_crag(f"Crag near {lat:.4f}", lat, lon)]
 
     monkeypatch.setattr(main, "fetch_openbeta_crags", fake_fetch)
@@ -506,11 +506,32 @@ def test_fetch_nationwide_openbeta_crags_merges_all_anchors(monkeypatch):
     assert len({c["name"] for c in results}) == len(main.NATIONWIDE_ANCHORS)
 
 
+def test_fetch_nationwide_openbeta_crags_uses_tighter_anchor_radius(monkeypatch):
+    # Regression test: anchors near very dense climbing areas (Boulder /
+    # Front Range, Bishop) were timing out in production when queried with
+    # the full home-radius search distance — OpenBeta's own resolver took
+    # too long to build such a large response. Each anchor must be queried
+    # with NATIONWIDE_ANCHOR_RADIUS_METERS, not MAX_RADIUS_METERS.
+    seen_radii = []
+
+    def fake_fetch(lat, lon, max_distance_m=None):
+        seen_radii.append(max_distance_m)
+        return []
+
+    monkeypatch.setattr(main, "fetch_openbeta_crags", fake_fetch)
+
+    main.fetch_nationwide_openbeta_crags()
+
+    assert seen_radii  # sanity: anchors were actually queried
+    assert all(r == main.NATIONWIDE_ANCHOR_RADIUS_METERS for r in seen_radii)
+    assert main.NATIONWIDE_ANCHOR_RADIUS_METERS < main.MAX_RADIUS_METERS
+
+
 def test_fetch_nationwide_openbeta_crags_dedupes_by_name_across_anchors(monkeypatch):
     # Two anchors both happen to return the same named area (e.g. it's near
     # the boundary of two anchors' search radii) — it should only appear once.
     monkeypatch.setattr(
-        main, "fetch_openbeta_crags", lambda lat, lon: [_live_crag("Shared Area", lat, lon)]
+        main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [_live_crag("Shared Area", lat, lon)]
     )
 
     results = main.fetch_nationwide_openbeta_crags()
@@ -524,7 +545,7 @@ def test_fetch_nationwide_openbeta_crags_caps_each_anchor_contribution(monkeypat
     monkeypatch.setattr(
         main,
         "fetch_openbeta_crags",
-        lambda lat, lon: [_live_crag(f"{lat}-{lon}-{i}", lat, lon) for i in range(50)],
+        lambda lat, lon, max_distance_m=None: [_live_crag(f"{lat}-{lon}-{i}", lat, lon) for i in range(50)],
     )
 
     results = main.fetch_nationwide_openbeta_crags()
@@ -548,7 +569,7 @@ def test_fetch_nationwide_openbeta_crags_one_dense_anchor_does_not_crowd_out_oth
     # back, leaving huge swaths of the country with zero pins.
     dense_anchor = main.NATIONWIDE_ANCHORS[0]
 
-    def fake_fetch(lat, lon):
+    def fake_fetch(lat, lon, max_distance_m=None):
         if (lat, lon) == (dense_anchor[1], dense_anchor[2]):
             return [_live_crag(f"Micro Boulder {i}", lat, lon) for i in range(200)]
         return [_live_crag(f"Real Crag near {lat:.2f}", lat, lon)]
@@ -566,7 +587,7 @@ def test_fetch_nationwide_openbeta_crags_one_dense_anchor_does_not_crowd_out_oth
 def test_fetch_nationwide_openbeta_crags_uses_cache_on_second_call(monkeypatch):
     call_count = {"n": 0}
 
-    def fake_fetch(lat, lon):
+    def fake_fetch(lat, lon, max_distance_m=None):
         call_count["n"] += 1
         return [_live_crag(f"Crag {lat}", lat, lon)]
 
@@ -581,7 +602,7 @@ def test_fetch_nationwide_openbeta_crags_uses_cache_on_second_call(monkeypatch):
 
 
 def test_fetch_nationwide_openbeta_crags_does_not_cache_total_failure(monkeypatch):
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [])
 
     first = main.fetch_nationwide_openbeta_crags()
 
@@ -594,7 +615,7 @@ def test_get_nationwide_crags_curated_wins_over_close_live_duplicate(monkeypatch
     monkeypatch.setattr(
         main,
         "fetch_openbeta_crags",
-        lambda lat, lon: [_live_crag("Duplicate Of Curated", curated["lat"] + 0.001, curated["lon"])],
+        lambda lat, lon, max_distance_m=None: [_live_crag("Duplicate Of Curated", curated["lat"] + 0.001, curated["lon"])],
     )
 
     results = main.get_nationwide_crags()
@@ -619,7 +640,7 @@ def test_get_crags_nationwide_includes_live_results(monkeypatch):
     monkeypatch.setattr(
         main,
         "fetch_openbeta_crags",
-        lambda lat, lon: [_live_crag("New River Gorge Wall", 38.0651, -81.0778)],
+        lambda lat, lon, max_distance_m=None: [_live_crag("New River Gorge Wall", 38.0651, -81.0778)],
     )
 
     res = client.get("/api/crags", params={"nationwide": "true"})
@@ -632,7 +653,7 @@ def test_score_nationwide_ignores_max_hours_and_home_distance(monkeypatch):
     # A crag on the opposite side of the country from home — would never
     # pass a normal drive-time filter, let alone max_hours=1.
     far_crag = _live_crag("New River Gorge Wall", 38.0651, -81.0778)
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [far_crag])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [far_crag])
 
     res = client.post(
         "/api/score",
@@ -654,7 +675,7 @@ def test_score_without_nationwide_flag_still_filters_by_max_hours(monkeypatch):
     # time from Seattle is enormous, so the normal max_hours filter should
     # exclude it even though (in this mocked test) it's still in the pool.
     far_crag = _live_crag("New River Gorge Wall", 38.0651, -81.0778)
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [far_crag])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [far_crag])
 
     res = client.post(
         "/api/score",
@@ -672,7 +693,7 @@ def test_score_without_nationwide_flag_still_filters_by_max_hours(monkeypatch):
 
 def test_score_nationwide_still_applies_style_filter(monkeypatch):
     far_crag = _live_crag("Bishop Boulders", 37.3639, -118.3953, style="bouldering")
-    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon: [far_crag])
+    monkeypatch.setattr(main, "fetch_openbeta_crags", lambda lat, lon, max_distance_m=None: [far_crag])
 
     res = client.post(
         "/api/score",
