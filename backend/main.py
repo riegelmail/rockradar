@@ -18,7 +18,11 @@ VALID_STYLES = {"all", "sport", "trad", "bouldering"}
 OPENBETA_API_URL = "https://api.openbeta.io"
 MAX_RADIUS_MILES = 200
 MAX_RADIUS_METERS = int(MAX_RADIUS_MILES * 1609.34)
-OPENBETA_TIMEOUT_S = 8.0
+# OpenBeta's public API can take a while on dense-climbing-area queries
+# (confirmed: Denver/Front Range regularly took >8s and got cut off as a
+# false "down" signal). 20s is still well inside a page-load spinner and
+# gives real requests a fair shot before we fall back to curated-only.
+OPENBETA_TIMEOUT_S = 20.0
 
 app = FastAPI()
 
@@ -522,39 +526,6 @@ def get_crags(lat: float | None = None, lon: float | None = None):
         raise HTTPException(status_code=400, detail="lat and lon must be provided together")
     crags = get_nearby_crags(lat, lon)
     return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
-
-
-# TEMPORARY — the isDestination-based filter turned out to be too sparse
-# (over-excluded real crags), now replaced with a totalClimbs threshold.
-# Keeping this visible for one more round in case that guess is also off.
-# Remove once /api/crags is confirmed giving sane results for a few spots.
-@app.get("/api/_debug/openbeta")
-def debug_openbeta(lat: float, lon: float):
-    try:
-        resp = httpx.post(
-            OPENBETA_API_URL,
-            json={
-                "query": OPENBETA_CRAGS_NEAR_QUERY,
-                "variables": {"lat": lat, "lng": lon, "maxDistance": MAX_RADIUS_METERS},
-            },
-            timeout=OPENBETA_TIMEOUT_S,
-        )
-        payload = resp.json()
-    except httpx.HTTPError as exc:
-        return {"error": str(exc), "type": type(exc).__name__}
-
-    buckets = (payload.get("data") or {}).get("cragsNear") or []
-    sample = []
-    for bucket in buckets:
-        for area in bucket.get("crags") or []:
-            sample.append(
-                {
-                    "name": area.get("area_name"),
-                    "totalClimbs": area.get("totalClimbs"),
-                    "isDestination": (area.get("metadata") or {}).get("isDestination"),
-                }
-            )
-    return {"total_seen": len(sample), "sample": sample[:30], "raw_errors": payload.get("errors")}
 
 
 def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:
