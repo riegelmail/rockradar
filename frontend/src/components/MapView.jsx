@@ -50,14 +50,25 @@ export default function MapView({ data, crags, home, loading, active = true, nat
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
-  const fittedRef = useRef(false);
+  const fittedRef = useRef(false); // have we ever fit the view at all?
+  const forceRefitRef = useRef(false); // armed by a nationwide toggle
+  const lastCragsRef = useRef(null); // the crags array we last actually drew
   const [selected, setSelected] = useState(null);
 
   // Switching in/out of nationwide mode changes the pin set from "one
-  // region" to "the whole country" or back — that's exactly the kind of
-  // change that should re-fit the view, unlike an ordinary data refresh.
+  // region" to "the whole country" or back, which should re-fit the view —
+  // but only once the NEW crag list actually arrives. Arming a flag here
+  // (rather than resetting fittedRef directly) matters because App.jsx's
+  // "show the last cached score instantly while refreshing" optimization
+  // can update `data` — and therefore `pins`, via the ranked-status join —
+  // one render before `crags` itself updates to match the new mode. If we
+  // reset fittedRef eagerly, that transient, mismatched render (new mode's
+  // scored data joined onto the OLD mode's crag list) fires an incorrect
+  // fitBounds using the wrong crag set and re-locks fittedRef before the
+  // real crags ever arrive — which is exactly what was happening. Gating
+  // on crags actually changing reference (below) sidesteps that entirely.
   useEffect(() => {
-    fittedRef.current = false;
+    forceRefitRef.current = true;
   }, [nationwide]);
 
   // Join scored status onto every crag coordinate. Crags the backend dropped
@@ -102,6 +113,8 @@ export default function MapView({ data, crags, home, loading, active = true, nat
       mapRef.current = null;
       layerRef.current = null;
       fittedRef.current = false;
+      forceRefitRef.current = false;
+      lastCragsRef.current = null;
     };
   }, []);
 
@@ -135,13 +148,26 @@ export default function MapView({ data, crags, home, loading, active = true, nat
       latlngs.push([pin.lat, pin.lon]);
     });
 
-    // Fit to all pins on the first successful draw only, so panning/zooming
-    // isn't reset every refresh.
-    if (!fittedRef.current && latlngs.length > 0) {
+    // Fit to all pins on the first successful draw, or when a mode toggle
+    // (e.g. switching in/out of nationwide) armed a refit AND the crags
+    // array has actually changed reference since the last draw. That second
+    // condition is what stops a transient render — where `data`/`pins`
+    // update from a stale cache hit one tick before `crags` catches up to
+    // the new mode — from firing fitBounds against the wrong (old) crag set
+    // and permanently blocking the correct fit once real data lands.
+    const cragsActuallyChanged = lastCragsRef.current !== crags;
+    lastCragsRef.current = crags;
+
+    const shouldFit =
+      latlngs.length > 0 &&
+      (!fittedRef.current || (forceRefitRef.current && cragsActuallyChanged));
+
+    if (shouldFit) {
       map.fitBounds(latlngs, { padding: [50, 50], maxZoom: 9 });
       fittedRef.current = true;
+      forceRefitRef.current = false;
     }
-  }, [pins, home, selected]);
+  }, [pins, home, selected, crags]);
 
   // Re-measure when this tab becomes visible again — Leaflet can't size a
   // container that was display:none while another tab was active.

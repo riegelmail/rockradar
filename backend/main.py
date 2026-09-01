@@ -544,8 +544,13 @@ def get_nearby_crags(lat: Optional[float], lon: Optional[float]) -> List[Dict[st
 #
 # Nationwide results are the same for every user regardless of home base, so
 # they're cached process-wide rather than refetched per request — refetching
-# ~16 anchors (each its own OpenBeta round trip) on every page load would be
+# ~21 anchors (each its own OpenBeta round trip) on every page load would be
 # both slow and unnecessarily hard on OpenBeta's free API.
+#
+# This anchor list is a curated sample of major named climbing destinations,
+# not a claim of full state-by-state coverage — most US states genuinely have
+# little to no notable rock climbing, and even covered regions only surface
+# up to MAX_PER_ANCHOR_NATIONWIDE crags each.
 # ---------------------------------------------------------------------------
 NATIONWIDE_ANCHORS = [
     ("PNW / Cascades, WA", 47.6062, -122.3321),
@@ -564,6 +569,11 @@ NATIONWIDE_ANCHORS = [
     ("Chattanooga, TN", 35.0456, -85.3097),
     ("The Gunks, NY", 41.7423, -74.1996),
     ("North Conway, NH", 44.0583, -71.1284),
+    ("Smith Rock, OR", 44.3654, -121.1401),
+    ("City of Rocks, ID", 42.0764, -113.7178),
+    ("Devil's Lake, WI", 43.4283, -89.7318),
+    ("Linville Gorge / Looking Glass, NC", 35.7326, -82.0451),
+    ("Sedona / Oak Creek, AZ", 34.9086, -111.7534),
 ]
 
 # Total pins shown on the nationwide map, across all anchors combined. Kept
