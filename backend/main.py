@@ -544,7 +544,7 @@ def get_nearby_crags(lat: Optional[float], lon: Optional[float]) -> List[Dict[st
 #
 # Nationwide results are the same for every user regardless of home base, so
 # they're cached process-wide rather than refetched per request — refetching
-# ~21 anchors (each its own OpenBeta round trip) on every page load would be
+# ~30 anchors (each its own OpenBeta round trip) on every page load would be
 # both slow and unnecessarily hard on OpenBeta's free API.
 #
 # This anchor list is a curated sample of major named climbing destinations,
@@ -574,13 +574,31 @@ NATIONWIDE_ANCHORS = [
     ("Devil's Lake, WI", 43.4283, -89.7318),
     ("Linville Gorge / Looking Glass, NC", 35.7326, -82.0451),
     ("Sedona / Oak Creek, AZ", 34.9086, -111.7534),
+    # Round 2: filled in after user reports of a real hole running from
+    # Northern California through the upper Midwest to New England / the
+    # Mid-Atlantic — those regions have genuine, named climbing that simply
+    # had no anchor within 60mi of it, so no amount of raising the per-anchor
+    # cap would have surfaced them.
+    ("Tahoe / Donner Summit, CA", 39.3280, -120.3410),
+    ("Bay Area / Castle Rock, CA", 37.2380, -122.0980),
+    ("Mount Shasta / Castle Crags, CA", 41.1520, -122.3210),
+    ("Adirondacks, NY", 44.1600, -73.7800),
+    ("Acadia, ME", 44.3386, -68.2733),
+    ("Seneca Rocks, WV", 38.8300, -79.3700),
+    ("Shenandoah / Old Rag, VA", 38.5700, -78.2700),
+    ("Taylors Falls, MN", 45.3960, -92.6560),
+    ("Tallulah Gorge, GA", 34.7370, -83.3890),
 ]
 
 # Total pins shown on the nationwide map, across all anchors combined. Kept
 # well below "every OpenBeta area in the country" on purpose — each pin also
-# means a client-side weather lookup, and a map with thousands of markers
-# stops being useful to look at anyway.
-MAX_NATIONWIDE_CRAGS = 120
+# means a client-side weather lookup (still cheap: the frontend batches those
+# in chunks of 40 fired concurrently, not one request per crag), and a map
+# with thousands of markers stops being useful to look at anyway. Raised from
+# 120 to 300 alongside the anchor-list expansion above — 120 meant each
+# anchor got only ~5-7 crags even in dense areas, which read as "missing
+# crags" in regions that do have more real coverage than that.
+MAX_NATIONWIDE_CRAGS = 300
 # Bouldering fields fragment into dozens of individually-named micro-areas in
 # OpenBeta (Hueco Tanks, Chattanooga's boulder fields, and Austin/Enchanted
 # Rock all do this) where a single sport/trad crag region doesn't. Without a
@@ -614,7 +632,7 @@ def fetch_nationwide_openbeta_crags() -> List[Dict[str, Any]]:
     capped per-anchor (see MAX_PER_ANCHOR_NATIONWIDE) so no single region
     can crowd out the rest, then capped overall at MAX_NATIONWIDE_CRAGS as a
     backstop. Cached for NATIONWIDE_CACHE_TTL_S. Queried in a thread pool so
-    ~16 sequential OpenBeta round trips don't turn into a multi-minute
+    dozens of sequential OpenBeta round trips don't turn into a multi-minute
     request — total time is bounded by the slowest single anchor, not the
     sum of all of them.
     """
