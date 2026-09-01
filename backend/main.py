@@ -507,6 +507,28 @@ def get_crags(lat: float | None = None, lon: float | None = None):
     return [{"name": c["name"], "lat": c["lat"], "lon": c["lon"]} for c in crags]
 
 
+# TEMPORARY — diagnosing why /api/crags is coming back empty for locations
+# far from the curated list. Shows the raw OpenBeta response/error instead
+# of the normal graceful-fallback-to-[] behavior. Remove once resolved.
+@app.get("/api/_debug/openbeta")
+def debug_openbeta(lat: float, lon: float):
+    try:
+        resp = httpx.post(
+            OPENBETA_API_URL,
+            json={
+                "query": OPENBETA_CRAGS_NEAR_QUERY,
+                "variables": {"lat": lat, "lng": lon, "maxDistance": MAX_RADIUS_METERS},
+            },
+            timeout=OPENBETA_TIMEOUT_S,
+        )
+        return {
+            "status_code": resp.status_code,
+            "body": resp.text[:4000],
+        }
+    except httpx.HTTPError as exc:
+        return {"error": str(exc), "type": type(exc).__name__}
+
+
 def _nothing_worth_driving(home_name: str, reason: str) -> Dict[str, Any]:
     return {
         "home": home_name,
